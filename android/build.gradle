@@ -19,3 +19,15 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// Some newer versions of transitive dependencies (e.g. androidx.core 1.15+) require
+// compileSdk 35 / AGP 8.6+. Force them back to a version compatible with this
+// project's compileSdk 34 / AGP 8.2.1 instead of bumping the whole toolchain.
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force "androidx.core:core:1.13.1"
+            force "androidx.core:core-ktx:1.13.1"
+        }
+    }
+}

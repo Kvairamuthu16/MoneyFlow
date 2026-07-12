@@ -1,26 +1,28 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Platform } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn, SlideInUp } from 'react-native-reanimated';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  AlertTriangle, 
-  Sparkles, 
-  Wallet, 
-  ChevronRight, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
+import {
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  Sparkles,
+  Wallet,
+  ChevronRight,
+  ArrowUpRight,
+  ArrowDownLeft,
   MessageSquare
 } from 'lucide-react-native';
 import { AppStorage } from '../../storage/mmkv';
+import { syncSmsTransactions } from '../../services/smsSync';
 import { Transaction, Budget, SmartInsight } from '../../types';
 
 export default function DashboardScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
   const settings = useMemo(() => AppStorage.getSettings(), []);
-  const transactions = useMemo(() => AppStorage.getTransactions(), [refreshing]);
-  const budgets = useMemo(() => AppStorage.getBudgets(), [refreshing]);
+  const transactions = useMemo(() => AppStorage.getTransactions(), [dataVersion]);
+  const budgets = useMemo(() => AppStorage.getBudgets(), [dataVersion]);
 
   const currencySymbol = settings.currency === 'INR' ? '₹' : settings.currency === 'USD' ? '$' : '€';
 
@@ -90,9 +92,28 @@ export default function DashboardScreen({ navigation }: any) {
     return list;
   }, [monthlyTransactions, income, expense, remainingSafe, currencySymbol]);
 
+  const runSmsSync = async (): Promise<void> => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('Not Available', 'Automatic SMS reading is only available on Android.');
+      return;
+    }
+    try {
+      const { added, total } = await syncSmsTransactions();
+      setDataVersion((v) => v + 1);
+      Alert.alert(
+        'Sync Complete',
+        added > 0
+          ? `Found ${added} new transaction${added === 1 ? '' : 's'} from your SMS inbox (${total} total).`
+          : 'No new bank transactions found in your SMS inbox.'
+      );
+    } catch (error: any) {
+      Alert.alert('Sync Failed', error?.message || 'Could not read SMS messages.');
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
+    runSmsSync().finally(() => setRefreshing(false));
   };
 
   return (
@@ -242,11 +263,11 @@ export default function DashboardScreen({ navigation }: any) {
             ))}
 
             {monthlyTransactions.length === 0 && (
-              <View className="py-8 items-center justify-center">
+              <TouchableOpacity onPress={runSmsSync} className="py-8 items-center justify-center">
                 <MessageSquare className="w-8 h-8 text-zinc-600 mb-2" />
                 <Text className="text-zinc-500 text-xs font-semibold">No SMS Transactions for this month</Text>
-                <Text className="text-zinc-600 text-[10px] mt-1">Simulate an incoming bank SMS alert</Text>
-              </View>
+                <Text className="text-indigo-400 text-[10px] mt-1 font-bold">Tap to scan your SMS inbox</Text>
+              </TouchableOpacity>
             )}
           </View>
         </Animated.View>

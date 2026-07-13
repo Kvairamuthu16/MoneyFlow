@@ -1,67 +1,76 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Platform } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, Animated as RNAnimated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
+import { Swipeable } from 'react-native-gesture-handler';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { 
-  Search, 
-  SlidersHorizontal, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Trash2, 
-  Edit3, 
-  ArrowUpDown
+import {
+  Search,
+  SlidersHorizontal,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Trash2,
+  Edit3,
+  ArrowUpDown,
+  X
 } from 'lucide-react-native';
-import { AppStorage } from '../../storage/mmkv';
+import { useAppData, useCurrency } from '../../context/AppDataContext';
+import { useTheme } from '../../context/ThemeContext';
+import { Chip } from '../../components/Chip';
 import { Transaction } from '../../types';
 
+const RECATEGORIZE_OPTIONS = ['Food', 'Groceries', 'Shopping', 'Bills', 'Travel', 'Entertainment', 'Salary', 'Other'];
+
+type ListRow = { kind: 'header'; label: string } | { kind: 'tx'; tx: Transaction };
+
+function dateGroupLabel(dateStr: string): string {
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  if (dateStr === todayStr) return 'Today';
+  if (dateStr === yesterdayStr) return 'Yesterday';
+  return new Date(dateStr).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 export default function TransactionsScreen() {
-  const settings = useMemo(() => AppStorage.getSettings(), []);
-  const [transactions, setTransactions] = useState<Transaction[]>(() => AppStorage.getTransactions());
+  const theme = useTheme();
+  const { format } = useCurrency();
+  const { transactions, deleteTransaction, updateTransaction } = useAppData();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('All');
 
-  const currencySymbol = settings.currency === 'INR' ? '₹' : settings.currency === 'USD' ? '$' : '€';
-
-  // Categories list
   const categories = useMemo(() => {
-    const list = new Set(transactions.map(t => t.category));
+    const list = new Set(transactions.map((t) => t.category));
     return ['All', ...Array.from(list)];
   }, [transactions]);
 
-  const [selectedCategory, setSelectedCategory] = useState('All');
-
-  // Filter & Sort
   const processedTransactions = useMemo(() => {
     let result = [...transactions];
 
-    // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(t => 
-        t.merchant.toLowerCase().includes(q) || 
-        t.bank.toLowerCase().includes(q) ||
-        (t.sourceText && t.sourceText.toLowerCase().includes(q))
+      result = result.filter(
+        (t) => t.merchant.toLowerCase().includes(q) || t.bank.toLowerCase().includes(q) || (t.sourceText && t.sourceText.toLowerCase().includes(q))
       );
     }
 
-    // Type filter
     if (typeFilter !== 'all') {
-      result = result.filter(t => t.type === typeFilter);
+      result = result.filter((t) => t.type === typeFilter);
     }
 
-    // Category filter
     if (selectedCategory !== 'All') {
-      result = result.filter(t => t.category === selectedCategory);
+      result = result.filter((t) => t.category === selectedCategory);
     }
 
-    // Sort
     result.sort((a, b) => {
       const timeA = new Date(`${a.date}T${a.time || '00:00'}:00`).getTime();
       const timeB = new Date(`${b.date}T${b.time || '00:00'}:00`).getTime();
-      
       if (sortBy === 'newest') return timeB - timeA;
       if (sortBy === 'oldest') return timeA - timeB;
       if (sortBy === 'highest') return b.amount - a.amount;
@@ -72,185 +81,256 @@ export default function TransactionsScreen() {
     return result;
   }, [transactions, searchQuery, typeFilter, selectedCategory, sortBy]);
 
-  const handleDelete = (id: string) => {
-    const updated = transactions.filter(t => t.id !== id);
-    setTransactions(updated);
-    AppStorage.saveTransactions(updated);
+  const summary = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    processedTransactions.forEach((t) => {
+      if (t.type === 'income') income += t.amount;
+      else expense += t.amount;
+    });
+    return { income, expense };
+  }, [processedTransactions]);
+
+  const rows = useMemo<ListRow[]>(() => {
+    if (sortBy !== 'newest' && sortBy !== 'oldest') {
+      // Grouping by date only makes sense for chronological sorts.
+      return processedTransactions.map((tx) => ({ kind: 'tx', tx }));
+    }
+    const out: ListRow[] = [];
+    let lastLabel: string | null = null;
+    for (const tx of processedTransactions) {
+      const label = dateGroupLabel(tx.date);
+      if (label !== lastLabel) {
+        out.push({ kind: 'header', label });
+        lastLabel = label;
+      }
+      out.push({ kind: 'tx', tx });
+    }
+    return out;
+  }, [processedTransactions, sortBy]);
+
+  const hasActiveFilters = searchQuery.trim() !== '' || typeFilter !== 'all' || selectedCategory !== 'All' || sortBy !== 'newest';
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setTypeFilter('all');
+    setSelectedCategory('All');
+    setSortBy('newest');
   };
 
-  const handleCategoryChange = (id: string, newCategory: string) => {
-    const updated = transactions.map(t => t.id === id ? { ...t, category: newCategory } : t);
-    setTransactions(updated);
-    AppStorage.saveTransactions(updated);
+  const handleCategoryChange = (id: string, currentCategory: string) => {
+    const curIdx = RECATEGORIZE_OPTIONS.indexOf(currentCategory);
+    const nextCat = RECATEGORIZE_OPTIONS[(curIdx + 1) % RECATEGORIZE_OPTIONS.length];
+    updateTransaction(id, { category: nextCat });
   };
 
-  const renderItem = ({ item }: { item: Transaction }) => {
+  const renderRightActions = (
+    _progress: RNAnimated.AnimatedInterpolation<number>,
+    _drag: RNAnimated.AnimatedInterpolation<number>,
+    swipeable: Swipeable,
+    tx: Transaction
+  ) => {
     return (
-      <Animated.View entering={FadeIn} className="mx-6 mb-2.5">
-        <View className="bg-zinc-900 border border-zinc-800/80 p-4 rounded-2xl flex-row justify-between items-center relative overflow-hidden">
-          <View className="flex-row items-center space-x-3 flex-1 mr-3">
-            <View className={`w-10 h-10 rounded-full items-center justify-center ${
-              item.type === 'income' ? 'bg-emerald-500/10' : 'bg-rose-500/10'
-            }`}>
-              {item.type === 'income' ? (
-                <ArrowUpRight className="w-5 h-5 text-emerald-400" />
-              ) : (
-                <ArrowDownLeft className="w-5 h-5 text-rose-400" />
-              )}
-            </View>
-            <View className="flex-1">
-              <Text numberOfLines={1} className="text-white text-sm font-bold">{item.merchant}</Text>
-              <Text className="text-zinc-500 text-[10px] font-semibold mt-0.5">
-                {item.category} • {item.bank} • {item.paymentMethod}
-              </Text>
-              {item.sourceText && (
-                <Text numberOfLines={1} className="text-zinc-600 text-[9px] mt-1 leading-relaxed font-medium">
-                  "{item.sourceText}"
-                </Text>
-              )}
-            </View>
-          </View>
+      <View style={{ flexDirection: 'row', marginBottom: 10 }}>
+        <TouchableOpacity
+          onPress={() => {
+            handleCategoryChange(tx.id, tx.category);
+            swipeable.close();
+          }}
+          style={{ width: 64, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Edit3 size={18} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 4 }}>Edit</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => deleteTransaction(tx.id)}
+          style={{ width: 64, backgroundColor: theme.colors.danger, alignItems: 'center', justifyContent: 'center', borderTopRightRadius: 16, borderBottomRightRadius: 16 }}
+        >
+          <Trash2 size={18} color="#fff" />
+          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 4 }}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
-          <View className="items-end shrink-0">
-            <Text className={`text-sm font-extrabold ${item.type === 'income' ? 'text-emerald-400' : 'text-zinc-100'}`}>
-              {item.type === 'income' ? '+' : '-'}{currencySymbol}{item.amount.toLocaleString()}
-            </Text>
-            <Text className="text-[10px] text-zinc-500 font-semibold mt-0.5">{item.date}</Text>
+  const renderRow = ({ item }: { item: ListRow }) => {
+    if (item.kind === 'header') {
+      return (
+        <Text style={{ color: theme.colors.textMuted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginHorizontal: 24, marginTop: 12, marginBottom: 6 }}>
+          {item.label}
+        </Text>
+      );
+    }
 
-            {/* Micro Quick Actions */}
-            <View className="flex-row items-center space-x-2 mt-2">
-              <TouchableOpacity 
-                onPress={() => handleDelete(item.id)}
-                className="p-1 hover:bg-rose-500/10 rounded-md"
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={() => {
-                  const nextCats = ['Food', 'Groceries', 'Shopping', 'Bills', 'Travel', 'Entertainment', 'Salary', 'Other'];
-                  const curIdx = nextCats.indexOf(item.category);
-                  const nextCat = nextCats[(curIdx + 1) % nextCats.length];
-                  handleCategoryChange(item.id, nextCat);
+    const tx = item.tx;
+    return (
+      <Animated.View entering={FadeIn} style={{ marginHorizontal: 24, marginBottom: 10 }}>
+        <Swipeable renderRightActions={(p, d, s) => renderRightActions(p, d, s as unknown as Swipeable, tx)} overshootRight={false}>
+          <View
+            style={{
+              backgroundColor: theme.colors.surface,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              padding: 14,
+              borderRadius: 16,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginRight: 10 }}>
+              <View
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 19,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: tx.type === 'income' ? `${theme.colors.success}1A` : `${theme.colors.danger}1A`
                 }}
-                className="p-1 hover:bg-indigo-500/10 rounded-md"
               >
-                <Edit3 className="w-3.5 h-3.5 text-indigo-400" />
-              </TouchableOpacity>
+                {tx.type === 'income' ? <ArrowUpRight size={18} color={theme.colors.success} /> : <ArrowDownLeft size={18} color={theme.colors.danger} />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
+                  {tx.merchant}
+                </Text>
+                <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 }}>
+                  {tx.category} • {tx.bank} • {tx.paymentMethod}
+                </Text>
+                {tx.sourceText && (
+                  <Text numberOfLines={1} style={{ color: theme.colors.textMuted, fontSize: 9, marginTop: 3, opacity: 0.8 }}>
+                    "{tx.sourceText}"
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ fontSize: 13, fontWeight: '800', color: tx.type === 'income' ? theme.colors.success : theme.colors.textPrimary }}>
+                {tx.type === 'income' ? '+' : '-'}
+                {format(tx.amount)}
+              </Text>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 }}>{tx.date}</Text>
             </View>
           </View>
-        </View>
+        </Swipeable>
       </Animated.View>
     );
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-zinc-950">
-      {/* Search Header */}
-      <View className="px-6 py-4 border-b border-zinc-900">
-        <Text className="text-white text-xl font-black mb-3">SMS Ledger</Text>
-        <View className="flex-row items-center space-x-2">
-          <View className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl flex-row items-center px-4 py-2.5">
-            <Search className="w-4 h-4 text-zinc-500 mr-2" />
-            <TextInput 
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      {/* Sticky Search Header */}
+      <View style={{ paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+        <Text style={{ color: theme.colors.textPrimary, fontSize: 20, fontWeight: '800', marginBottom: 12 }}>SMS Ledger</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: theme.colors.surface,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              borderRadius: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 14,
+              paddingVertical: 10
+            }}
+          >
+            <Search size={16} color={theme.colors.textMuted} style={{ marginRight: 8 }} />
+            <TextInput
               placeholder="Search merchants, banks, ref numbers..."
-              placeholderTextColor="#71717A"
+              placeholderTextColor={theme.colors.textMuted}
               value={searchQuery}
               onChangeText={setSearchQuery}
-              className="text-white text-xs font-medium flex-1 p-0"
+              style={{ color: theme.colors.textPrimary, fontSize: 12, flex: 1, padding: 0 }}
             />
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setShowFilters(!showFilters)}
-            className={`p-3 bg-zinc-900 border rounded-2xl ${
-              showFilters ? 'border-indigo-500 text-indigo-400' : 'border-zinc-800 text-zinc-400'
-            }`}
+            style={{
+              padding: 12,
+              backgroundColor: theme.colors.surface,
+              borderWidth: 1,
+              borderColor: showFilters ? theme.colors.accent : theme.colors.border,
+              borderRadius: 16
+            }}
           >
-            <SlidersHorizontal className="w-4 h-4" />
+            <SlidersHorizontal size={16} color={showFilters ? theme.colors.accent : theme.colors.textMuted} />
           </TouchableOpacity>
+        </View>
+
+        {/* Summary row for the currently filtered set */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+          <Text style={{ color: theme.colors.textMuted, fontSize: 11 }}>
+            {processedTransactions.length} transaction{processedTransactions.length === 1 ? '' : 's'}
+          </Text>
+          <Text style={{ fontSize: 11, fontWeight: '700' }}>
+            <Text style={{ color: theme.colors.success }}>+{format(summary.income)}</Text>
+            {'  '}
+            <Text style={{ color: theme.colors.danger }}>-{format(summary.expense)}</Text>
+          </Text>
         </View>
       </View>
 
       {/* Advanced Filter Pane */}
       {showFilters && (
-        <Animated.View entering={FadeIn} className="bg-zinc-900/60 border-b border-zinc-900 py-4 px-6 space-y-4">
-          {/* Type filters */}
+        <Animated.View entering={FadeIn} style={{ backgroundColor: theme.colors.surfaceAlt, borderBottomWidth: 1, borderBottomColor: theme.colors.border, paddingVertical: 16, paddingHorizontal: 24, gap: 14 }}>
           <View>
-            <Text className="text-zinc-500 text-[10px] font-bold uppercase mb-2">Transaction Type</Text>
-            <View className="flex-row gap-2">
+            <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 }}>Transaction Type</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
               {(['all', 'income', 'expense'] as const).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  onPress={() => setTypeFilter(type)}
-                  className={`px-4 py-1.5 rounded-full border text-xs font-bold capitalize ${
-                    typeFilter === type 
-                      ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' 
-                      : 'border-zinc-800 text-zinc-400'
-                  }`}
-                >
-                  <Text className={typeFilter === type ? 'text-indigo-400' : 'text-zinc-400'}>{type}</Text>
-                </TouchableOpacity>
+                <Chip key={type} label={type} selected={typeFilter === type} onPress={() => setTypeFilter(type)} />
               ))}
             </View>
           </View>
 
-          {/* Sort By options */}
           <View>
-            <Text className="text-zinc-500 text-[10px] font-bold uppercase mb-2">Sort Order</Text>
-            <View className="flex-row flex-wrap gap-2">
+            <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 }}>Sort Order</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {(['newest', 'oldest', 'highest', 'lowest'] as const).map((sort) => (
-                <TouchableOpacity
-                  key={sort}
-                  onPress={() => setSortBy(sort)}
-                  className={`px-4 py-1.5 rounded-full border text-xs font-bold capitalize flex-row items-center space-x-1 ${
-                    sortBy === sort 
-                      ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400' 
-                      : 'border-zinc-800 text-zinc-400'
-                  }`}
-                >
-                  <ArrowUpDown className="w-3 h-3 mr-1" />
-                  <Text className={sortBy === sort ? 'text-indigo-400' : 'text-zinc-400'}>{sort}</Text>
-                </TouchableOpacity>
+                <Chip key={sort} label={sort} selected={sortBy === sort} onPress={() => setSortBy(sort)} />
               ))}
             </View>
           </View>
+
+          {hasActiveFilters && (
+            <TouchableOpacity onPress={resetFilters} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>
+              <X size={14} color={theme.colors.danger} />
+              <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: '700' }}>Reset Filters</Text>
+            </TouchableOpacity>
+          )}
         </Animated.View>
       )}
 
       {/* Categories Horizontal scroll */}
-      <View className="py-3">
-        <FlashList 
+      <View style={{ paddingVertical: 12 }}>
+        <FlashList
           horizontal
           estimatedItemSize={80}
           data={categories}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 24 }}
           renderItem={({ item }) => (
-            <TouchableOpacity 
-              onPress={() => setSelectedCategory(item)}
-              className={`mr-2 px-4 py-2 rounded-2xl border text-xs font-bold ${
-                selectedCategory === item 
-                  ? 'bg-white border-white text-zinc-950' 
-                  : 'bg-zinc-900 border-zinc-800/60 text-zinc-400'
-              }`}
-            >
-              <Text className={selectedCategory === item ? 'text-zinc-950 font-bold' : 'text-zinc-400 font-medium'}>
-                {item}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ marginRight: 8 }}>
+              <Chip label={item} selected={selectedCategory === item} onPress={() => setSelectedCategory(item)} />
+            </View>
           )}
         />
       </View>
 
-      {/* Main FlashList - High efficiency rendering for 10,000+ items */}
-      <View className="flex-1">
-        <FlashList 
-          data={processedTransactions}
-          renderItem={renderItem}
-          estimatedItemSize={120}
+      {/* Main FlashList - grouped by date, high efficiency rendering */}
+      <View style={{ flex: 1 }}>
+        <FlashList
+          data={rows}
+          renderItem={renderRow}
+          estimatedItemSize={110}
+          getItemType={(item) => item.kind}
           ListEmptyComponent={
-            <View className="py-24 items-center justify-center">
-              <Text className="text-zinc-500 text-sm font-semibold">No transactions match your filters</Text>
-              <Text className="text-zinc-600 text-xs mt-1">Try resetting the search query or sorting</Text>
+            <View style={{ paddingVertical: 96, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 14, fontWeight: '600' }}>No transactions match your filters</Text>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 12, marginTop: 4 }}>Try resetting the search query or sorting</Text>
             </View>
           }
         />

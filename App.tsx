@@ -12,6 +12,8 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react-native';
 
+import { AppDataProvider } from './src/context/AppDataContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import DashboardScreen from './src/features/dashboard/DashboardScreen';
 import TransactionsScreen from './src/features/transactions/TransactionsScreen';
 import BudgetsScreen from './src/features/budgets/BudgetsScreen';
@@ -28,57 +30,71 @@ export type RootTabParamList = {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
+function AppNavigator() {
+  const theme = useTheme();
+
+  return (
+    <>
+      <StatusBar barStyle={theme.mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={theme.colors.background} />
+      <NavigationContainer>
+        <Tab.Navigator
+          screenOptions={{
+            headerShown: false,
+            tabBarActiveTintColor: theme.colors.accent,
+            tabBarInactiveTintColor: theme.colors.textMuted,
+            tabBarStyle: { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border },
+          }}
+        >
+          <Tab.Screen
+            name="Dashboard"
+            component={DashboardScreen}
+            options={{
+              tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} />,
+            }}
+          />
+          <Tab.Screen
+            name="Transactions"
+            component={TransactionsScreen}
+            options={{
+              tabBarIcon: ({ color, size }) => <Receipt color={color} size={size} />,
+            }}
+          />
+          <Tab.Screen
+            name="Budgets"
+            component={BudgetsScreen}
+            options={{
+              tabBarIcon: ({ color, size }) => <PiggyBank color={color} size={size} />,
+            }}
+          />
+          <Tab.Screen
+            name="Analytics"
+            component={AnalyticsScreen}
+            options={{
+              tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
+            }}
+          />
+          <Tab.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{
+              tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} />,
+            }}
+          />
+        </Tab.Navigator>
+      </NavigationContainer>
+    </>
+  );
+}
+
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar barStyle="light-content" backgroundColor="#09090b" />
-        <NavigationContainer>
-          <Tab.Navigator
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: '#818cf8',
-              tabBarInactiveTintColor: '#71717a',
-              tabBarStyle: { backgroundColor: '#09090b', borderTopColor: '#27272a' },
-            }}
-          >
-            <Tab.Screen
-              name="Dashboard"
-              component={DashboardScreen}
-              options={{
-                tabBarIcon: ({ color, size }) => <LayoutDashboard color={color} size={size} />,
-              }}
-            />
-            <Tab.Screen
-              name="Transactions"
-              component={TransactionsScreen}
-              options={{
-                tabBarIcon: ({ color, size }) => <Receipt color={color} size={size} />,
-              }}
-            />
-            <Tab.Screen
-              name="Budgets"
-              component={BudgetsScreen}
-              options={{
-                tabBarIcon: ({ color, size }) => <PiggyBank color={color} size={size} />,
-              }}
-            />
-            <Tab.Screen
-              name="Analytics"
-              component={AnalyticsScreen}
-              options={{
-                tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
-              }}
-            />
-            <Tab.Screen
-              name="Settings"
-              component={SettingsScreen}
-              options={{
-                tabBarIcon: ({ color, size }) => <SettingsIcon color={color} size={size} />,
-              }}
-            />
-          </Tab.Navigator>
-        </NavigationContainer>
+        <AppDataProvider>
+          <ThemeProvider>
+            <AppNavigator />
+          </ThemeProvider>
+        </AppDataProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

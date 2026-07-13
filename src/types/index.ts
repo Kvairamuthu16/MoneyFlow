@@ -54,4 +54,13 @@ export interface AppSettings {
   currency: 'INR' | 'USD' | 'EUR' | 'GBP';
   smsPermissionGranted: boolean;
   selectedMonth: string; // YYYY-MM (e.g. "2026-07")
+  biometricLockEnabled: boolean;
+}
+
+export interface BackupPayload {
+  version: number;
+  exportedAt: string;
+  settings: AppSettings;
+  transactions: Transaction[];
+  budgets: Budget[];
 }

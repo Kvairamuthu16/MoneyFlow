@@ -1,5 +1,5 @@
 import { MMKV } from 'react-native-mmkv';
-import { Transaction, Budget, SmartInsight, AppSettings } from '../types';
+import { Transaction, Budget, SmartInsight, AppSettings, BackupPayload } from '../types';
 
 export const storage = new MMKV({
   id: 'moneyflow-ai-storage',
@@ -11,59 +11,142 @@ export const StorageKeys = {
   BUDGETS: 'moneyflow_budgets',
   INSIGHTS: 'moneyflow_insights',
   SETTINGS: 'moneyflow_settings',
-  PARSED_SMS_IDS: 'moneyflow_parsed_sms_ids'
+  PARSED_SMS_IDS: 'moneyflow_parsed_sms_ids',
+  ONBOARDED: 'moneyflow_onboarded'
 };
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'dark',
+  currency: 'INR',
+  smsPermissionGranted: false,
+  selectedMonth: currentYearMonth(),
+  biometricLockEnabled: false
+};
+
+// A starter set of budget categories so the Budgets screen isn't empty on
+// first launch. Limits are reasonable defaults for an Indian household;
+// spent is always recomputed from real transactions, never trusted from here.
+export const SEED_BUDGETS: Budget[] = [
+  { category: 'Food', limit: 8000, spent: 0 },
+  { category: 'Groceries', limit: 6000, spent: 0 },
+  { category: 'Transport', limit: 3000, spent: 0 },
+  { category: 'Bills', limit: 5000, spent: 0 },
+  { category: 'Shopping', limit: 5000, spent: 0 },
+  { category: 'Entertainment', limit: 2000, spent: 0 },
+  { category: 'Other', limit: 3000, spent: 0 }
+];
+
+function currentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Parses JSON safely, returning `fallback` instead of throwing on corrupt/missing data. */
+function safeParse<T>(raw: string | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeGet<T>(key: string, fallback: T): T {
+  return safeParse(storage.getString(key), fallback);
+}
+
+function safeSet(key: string, value: unknown): void {
+  storage.set(key, JSON.stringify(value));
+}
 
 export const AppStorage = {
   // Save/Get Transactions
   saveTransactions: (txs: Transaction[]): void => {
-    storage.set(StorageKeys.TRANSACTIONS, JSON.stringify(txs));
+    safeSet(StorageKeys.TRANSACTIONS, txs);
   },
   getTransactions: (): Transaction[] => {
-    const data = storage.getString(StorageKeys.TRANSACTIONS);
-    return data ? JSON.parse(data) : [];
+    return safeGet<Transaction[]>(StorageKeys.TRANSACTIONS, []);
   },
 
   // Save/Get Budgets
   saveBudgets: (budgets: Budget[]): void => {
-    storage.set(StorageKeys.BUDGETS, JSON.stringify(budgets));
+    safeSet(StorageKeys.BUDGETS, budgets);
   },
   getBudgets: (): Budget[] => {
-    const data = storage.getString(StorageKeys.BUDGETS);
-    return data ? JSON.parse(data) : [];
+    const hasOnboarded = storage.getBoolean(StorageKeys.ONBOARDED);
+    const budgets = safeGet<Budget[] | null>(StorageKeys.BUDGETS, null as unknown as Budget[]);
+    if (budgets && budgets.length > 0) return budgets;
+    if (!hasOnboarded) {
+      AppStorage.saveBudgets(SEED_BUDGETS);
+      return SEED_BUDGETS;
+    }
+    return [];
   },
 
   // Save/Get Insights
   saveInsights: (insights: SmartInsight[]): void => {
-    storage.set(StorageKeys.INSIGHTS, JSON.stringify(insights));
+    safeSet(StorageKeys.INSIGHTS, insights);
   },
   getInsights: (): SmartInsight[] => {
-    const data = storage.getString(StorageKeys.INSIGHTS);
-    return data ? JSON.parse(data) : [];
+    return safeGet<SmartInsight[]>(StorageKeys.INSIGHTS, []);
   },
 
   // Save/Get Settings
   saveSettings: (settings: AppSettings): void => {
-    storage.set(StorageKeys.SETTINGS, JSON.stringify(settings));
+    safeSet(StorageKeys.SETTINGS, settings);
   },
   getSettings: (): AppSettings => {
-    const data = storage.getString(StorageKeys.SETTINGS);
-    const defaultSettings: AppSettings = {
-      theme: 'dark',
-      currency: 'INR',
-      smsPermissionGranted: false,
-      selectedMonth: '2026-07'
-    };
-    return data ? JSON.parse(data) : defaultSettings;
+    const stored = safeGet<Partial<AppSettings> | null>(StorageKeys.SETTINGS, null);
+    // Merge with defaults so newly-added settings fields (e.g. after an app
+    // update) always have a sane value even for existing installs.
+    return { ...DEFAULT_SETTINGS, ...(stored || {}) };
   },
 
   // Track already parsed SMS IDs to prevent duplicates
   saveParsedSMSIds: (ids: string[]): void => {
-    storage.set(StorageKeys.PARSED_SMS_IDS, JSON.stringify(ids));
+    safeSet(StorageKeys.PARSED_SMS_IDS, ids);
   },
   getParsedSMSIds: (): string[] => {
-    const data = storage.getString(StorageKeys.PARSED_SMS_IDS);
-    return data ? JSON.parse(data) : [];
+    return safeGet<string[]>(StorageKeys.PARSED_SMS_IDS, []);
+  },
+
+  // Mark first-run onboarding as complete (stops re-seeding default budgets
+  // after the user has deleted them all intentionally).
+  markOnboarded: (): void => {
+    storage.set(StorageKeys.ONBOARDED, true);
+  },
+
+  // Export everything into a single portable JSON payload.
+  exportBackup: (): BackupPayload => {
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: AppStorage.getSettings(),
+      transactions: AppStorage.getTransactions(),
+      budgets: AppStorage.getBudgets()
+    };
+  },
+
+  // Restore from a previously exported backup payload. Returns false (and
+  // does not touch storage) if the payload doesn't look like a valid backup.
+  importBackup: (payload: unknown): boolean => {
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      !Array.isArray((payload as BackupPayload).transactions) ||
+      !Array.isArray((payload as BackupPayload).budgets)
+    ) {
+      return false;
+    }
+    const backup = payload as BackupPayload;
+    AppStorage.saveTransactions(backup.transactions);
+    AppStorage.saveBudgets(backup.budgets);
+    if (backup.settings) {
+      AppStorage.saveSettings({ ...DEFAULT_SETTINGS, ...backup.settings });
+    }
+    AppStorage.markOnboarded();
+    return true;
   },
 
   // Clear all data (Factory Reset)

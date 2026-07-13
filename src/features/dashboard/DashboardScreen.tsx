@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Platform, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Platform, Alert, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn, SlideInUp } from 'react-native-reanimated';
 import LinearGradient from 'react-native-linear-gradient';
@@ -23,6 +23,14 @@ import { KpiCard } from '../../components/KpiCard';
 import { MonthSelector } from '../../components/MonthSelector';
 import { useResponsive } from '../../hooks/useResponsive';
 import { getDaysElapsed } from '../../utils/date';
+import { SmsScanRange } from '../../services/smsSync';
+
+const SCAN_RANGE_OPTIONS: { value: SmsScanRange; label: string; hint: string }[] = [
+  { value: 'day', label: 'Today', hint: 'Messages from the last 24 hours' },
+  { value: 'week', label: 'This Week', hint: 'Messages from the last 7 days' },
+  { value: 'month', label: 'This Month', hint: 'Messages from the last 30 days' },
+  { value: 'all', label: 'All Time', hint: 'Your entire SMS inbox' }
+];
 
 export default function DashboardScreen({ navigation }: any) {
   const theme = useTheme();
@@ -30,6 +38,7 @@ export default function DashboardScreen({ navigation }: any) {
   const { kpiColumns } = useResponsive();
   const { settings, setSelectedMonth, monthlyTransactions, insights, isSyncing, syncSms } = useAppData();
   const [refreshing, setRefreshing] = useState(false);
+  const [showScanModal, setShowScanModal] = useState(false);
 
   const { income, expense, remainingSafe, savingsRate, dailyBurn } = useMemo(() => {
     let inc = 0;
@@ -47,27 +56,34 @@ export default function DashboardScreen({ navigation }: any) {
     return { income: inc, expense: exp, remainingSafe: safe, savingsRate: Math.max(0, rate), dailyBurn: burn };
   }, [monthlyTransactions, settings.selectedMonth]);
 
-  const runSmsSync = async (): Promise<void> => {
+  const runSmsSync = async (range: SmsScanRange = 'all'): Promise<void> => {
     if (Platform.OS !== 'android') {
       Alert.alert('Not Available', 'Automatic SMS reading is only available on Android.');
       return;
     }
     try {
-      const { added, total } = await syncSms();
+      const { added, total, scanned } = await syncSms(range);
       Alert.alert(
         'Sync Complete',
         added > 0
-          ? `Found ${added} new transaction${added === 1 ? '' : 's'} from your SMS inbox (${total} total).`
-          : 'No new bank transactions found in your SMS inbox.'
+          ? `Scanned ${scanned} message${scanned === 1 ? '' : 's'} and found ${added} new transaction${added === 1 ? '' : 's'} (${total} total).`
+          : `Scanned ${scanned} message${scanned === 1 ? '' : 's'}. No new bank transactions found.`
       );
     } catch (error: any) {
       Alert.alert('Sync Failed', error?.message || 'Could not read SMS messages.');
     }
   };
 
+  const openScanModal = () => setShowScanModal(true);
+
+  const handleSelectScanRange = (range: SmsScanRange) => {
+    setShowScanModal(false);
+    runSmsSync(range);
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
-    runSmsSync().finally(() => setRefreshing(false));
+    runSmsSync('all').finally(() => setRefreshing(false));
   };
 
   return (
@@ -159,7 +175,7 @@ export default function DashboardScreen({ navigation }: any) {
         <Animated.View entering={FadeIn.delay(300)} style={{ paddingHorizontal: 24, marginBottom: 24 }}>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <TouchableOpacity
-              onPress={runSmsSync}
+              onPress={openScanModal}
               disabled={isSyncing}
               style={{ flex: 1, alignItems: 'center', gap: 6, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingVertical: 14 }}
             >
@@ -293,7 +309,7 @@ export default function DashboardScreen({ navigation }: any) {
             ))}
 
             {monthlyTransactions.length === 0 && (
-              <TouchableOpacity onPress={runSmsSync} style={{ paddingVertical: 32, alignItems: 'center', justifyContent: 'center' }}>
+              <TouchableOpacity onPress={openScanModal} style={{ paddingVertical: 32, alignItems: 'center', justifyContent: 'center' }}>
                 <MessageSquare size={28} color={theme.colors.textMuted} style={{ marginBottom: 8 }} />
                 <Text style={{ color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' }}>No SMS Transactions for this month</Text>
                 <Text style={{ color: theme.colors.accent, fontSize: 10, marginTop: 4, fontWeight: '700' }}>Tap to scan your SMS inbox</Text>
@@ -302,6 +318,38 @@ export default function DashboardScreen({ navigation }: any) {
           </Card>
         </Animated.View>
       </ScrollView>
+
+      {/* SMS Scan Range Modal */}
+      <Modal visible={showScanModal} transparent animationType="fade" onRequestClose={() => setShowScanModal(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }} onPress={() => setShowScanModal(false)}>
+          <Pressable
+            style={{
+              backgroundColor: theme.colors.surface,
+              borderTopLeftRadius: theme.radius.xl,
+              borderTopRightRadius: theme.radius.xl,
+              padding: 24,
+              gap: 8
+            }}
+          >
+            <Text style={{ color: theme.colors.textPrimary, fontSize: 16, fontWeight: '800', marginBottom: 8 }}>Scan SMS Inbox</Text>
+            {SCAN_RANGE_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                onPress={() => handleSelectScanRange(opt.value)}
+                style={{
+                  paddingVertical: 14,
+                  paddingHorizontal: 4,
+                  borderBottomWidth: opt.value === 'all' ? 0 : 1,
+                  borderBottomColor: theme.colors.border
+                }}
+              >
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 14, fontWeight: '700' }}>{opt.label}</Text>
+                <Text style={{ color: theme.colors.textMuted, fontSize: 11, marginTop: 2 }}>{opt.hint}</Text>
+              </TouchableOpacity>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }

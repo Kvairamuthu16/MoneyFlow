@@ -17,9 +17,10 @@ import {
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Chip } from '../../components/Chip';
+import { ALL_CATEGORIES } from '../../services/smsParser';
 import { Transaction } from '../../types';
 
-const RECATEGORIZE_OPTIONS = ['Food', 'Groceries', 'Shopping', 'Bills', 'Travel', 'Entertainment', 'Salary', 'Other'];
+const RECATEGORIZE_OPTIONS: string[] = [...ALL_CATEGORIES];
 
 type ListRow = { kind: 'header'; label: string } | { kind: 'tx'; tx: Transaction };
 

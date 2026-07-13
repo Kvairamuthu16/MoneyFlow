@@ -26,11 +26,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
 // A starter set of budget categories so the Budgets screen isn't empty on
 // first launch. Limits are reasonable defaults for an Indian household;
 // spent is always recomputed from real transactions, never trusted from here.
+//
+// Category names here MUST match what SmartOfflineSMSParser.autoCategorize()
+// (src/services/smsParser.ts) actually produces -- otherwise parsed
+// transactions silently never count against any budget.
 export const SEED_BUDGETS: Budget[] = [
   { category: 'Food', limit: 8000, spent: 0 },
   { category: 'Groceries', limit: 6000, spent: 0 },
-  { category: 'Transport', limit: 3000, spent: 0 },
-  { category: 'Bills', limit: 5000, spent: 0 },
+  { category: 'Fuel', limit: 3000, spent: 0 },
+  { category: 'Utilities', limit: 5000, spent: 0 },
   { category: 'Shopping', limit: 5000, spent: 0 },
   { category: 'Entertainment', limit: 2000, spent: 0 },
   { category: 'Other', limit: 3000, spent: 0 }

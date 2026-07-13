@@ -1,5 +1,31 @@
 import { Transaction, PaymentMethod, TransactionType } from '../types';
 
+// Single source of truth for every category autoCategorize() can produce.
+// Anything that displays/edits a transaction's category (budgets seed data,
+// the Transactions screen's recategorize control, etc.) should reference
+// this list instead of hardcoding its own -- a mismatched name here means a
+// transaction silently stops counting against any budget.
+export const ALL_CATEGORIES = [
+  'Food',
+  'Groceries',
+  'Medical',
+  'Fuel',
+  'Travel',
+  'Shopping',
+  'Entertainment',
+  'Utilities',
+  'Internet',
+  'Insurance',
+  'Rent',
+  'EMI',
+  'Salary',
+  'Investment',
+  'Education',
+  'Cash',
+  'Transfer',
+  'Other'
+] as const;
+
 // Category mapping helper based on merchant name keywords
 export function autoCategorize(merchant: string, text: string): string {
   const query = `${merchant} ${text}`.toLowerCase();
@@ -162,9 +188,13 @@ export class SmartOfflineSMSParser {
     // 6. Extract Merchant Name
     let merchant = 'Other Transaction';
     
-    // Look for merchants after "at", "to", "info", "on", "via"
+    // Look for merchants after "at", "to", "info", "on", "via". Bank apps
+    // frequently lay a transaction out as separate labeled lines (e.g.
+    // "Sent Rs.80\nFrom HDFC Bank A/C *9892\nTo BISMI STORES\nOn 13/07/26"),
+    // so a bare "to" (word-bounded, to avoid matching inside "into"/"auto")
+    // has to be recognized too, not just "paid to"/"payment to".
     const merchantPatterns = [
-      /(?:spent at|spent on|paid to|payment to|at|info:)\s+([A-Za-z0-9\s\.\*&]+?)(?:\s+on|\s+via|\s+balance|\s+Ref|\s+RefNo|\s+with|\.|$)/i,
+      /(?:spent at|spent on|paid to|payment to|sent to|\bto\b|at|info:)\s+([A-Za-z0-9\s\.\*&]+?)(?:\s+on|\s+via|\s+balance|\s+Ref|\s+RefNo|\s+with|\.|$)/i,
       /(?:credited from|received from|salary from)\s+([A-Za-z0-9\s\.\*&]+?)(?:\s+on|\s+via|\s+balance|\s+Ref|\s+with|\.|$)/i
     ];
 

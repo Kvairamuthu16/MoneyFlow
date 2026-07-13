@@ -3,6 +3,8 @@ import SmsAndroid from 'react-native-get-sms-android';
 import { AppStorage } from '../storage/mmkv';
 import { SmartOfflineSMSParser } from './smsParser';
 
+export type SmsScanRange = 'day' | 'week' | 'month' | 'all';
+
 interface RawSmsMessage {
   id: string;
   address: string;
@@ -24,10 +26,30 @@ export async function requestSmsPermission(): Promise<boolean> {
   return granted === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-function readInboxSms(maxCount = 1000): Promise<RawSmsMessage[]> {
+/** Returns the epoch-ms start of the requested scan range, or undefined for 'all' (no lower bound). */
+export function getScanRangeStart(range: SmsScanRange, now: Date = new Date()): number | undefined {
+  const start = new Date(now);
+  switch (range) {
+    case 'day':
+      start.setHours(0, 0, 0, 0);
+      return start.getTime();
+    case 'week':
+      start.setDate(start.getDate() - 7);
+      return start.getTime();
+    case 'month':
+      start.setDate(start.getDate() - 30);
+      return start.getTime();
+    case 'all':
+    default:
+      return undefined;
+  }
+}
+
+function readInboxSms(options: { minDate?: number; maxDate?: number; maxCount?: number } = {}): Promise<RawSmsMessage[]> {
+  const { minDate, maxDate, maxCount = 2000 } = options;
   return new Promise((resolve, reject) => {
     SmsAndroid.list(
-      JSON.stringify({ box: 'inbox', maxCount }),
+      JSON.stringify({ box: 'inbox', maxCount, ...(minDate !== undefined ? { minDate } : {}), ...(maxDate !== undefined ? { maxDate } : {}) }),
       (fail: string) => reject(new Error(fail)),
       (_count: number, smsList: string) => {
         const raw = JSON.parse(smsList) as Array<{ _id: number | string; address: string; body: string; date: number }>;
@@ -44,13 +66,14 @@ function readInboxSms(maxCount = 1000): Promise<RawSmsMessage[]> {
   });
 }
 
-export async function syncSmsTransactions(): Promise<{ added: number; total: number }> {
+export async function syncSmsTransactions(range: SmsScanRange = 'all'): Promise<{ added: number; total: number; scanned: number }> {
   const hasPermission = await requestSmsPermission();
   if (!hasPermission) {
     throw new Error('SMS permission was not granted.');
   }
 
-  const messages = await readInboxSms();
+  const minDate = getScanRangeStart(range);
+  const messages = await readInboxSms({ minDate });
   const parsedIds = new Set(AppStorage.getParsedSMSIds());
   const existingTransactions = AppStorage.getTransactions();
 
@@ -74,5 +97,5 @@ export async function syncSmsTransactions(): Promise<{ added: number; total: num
   const settings = AppStorage.getSettings();
   AppStorage.saveSettings({ ...settings, smsPermissionGranted: true });
 
-  return { added: newTransactions.length, total: existingTransactions.length + newTransactions.length };
+  return { added: newTransactions.length, total: existingTransactions.length + newTransactions.length, scanned: messages.length };
 }

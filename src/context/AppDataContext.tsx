@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { AppStorage } from '../storage/mmkv';
-import { syncSmsTransactions } from '../services/smsSync';
+import { syncSmsTransactions, SmsScanRange } from '../services/smsSync';
 import { AppSettings, BackupPayload, Budget, SmartInsight, Transaction } from '../types';
 
 interface AppDataContextValue {
@@ -19,7 +19,7 @@ interface AppDataContextValue {
   addBudget: (budget: Pick<Budget, 'category' | 'limit'>) => void;
   updateBudgetLimit: (category: string, limit: number) => void;
   deleteBudget: (category: string) => void;
-  syncSms: () => Promise<{ added: number; total: number }>;
+  syncSms: (range?: SmsScanRange) => Promise<{ added: number; total: number; scanned: number }>;
   exportBackup: () => BackupPayload;
   importBackup: (payload: unknown) => boolean;
   clearAllData: () => void;
@@ -161,16 +161,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [budgetConfigs, persistBudgetConfigs]
   );
 
-  const syncSms = useCallback(async () => {
-    setIsSyncing(true);
-    try {
-      const result = await syncSmsTransactions();
-      refresh();
-      return result;
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [refresh]);
+  const syncSms = useCallback(
+    async (range: SmsScanRange = 'all') => {
+      setIsSyncing(true);
+      try {
+        const result = await syncSmsTransactions(range);
+        refresh();
+        return result;
+      } finally {
+        setIsSyncing(false);
+      }
+    },
+    [refresh]
+  );
 
   const clearAllData = useCallback(() => {
     AppStorage.clearAll();

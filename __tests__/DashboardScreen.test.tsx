@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react-native';
 import { AppDataProvider } from '../src/context/AppDataContext';
 import { ThemeProvider } from '../src/context/ThemeContext';
 import DashboardScreen from '../src/features/dashboard/DashboardScreen';
+import { initializeStorage } from '../src/storage/mmkv';
 
 function renderDashboard() {
   return render(
@@ -15,6 +16,10 @@ function renderDashboard() {
 }
 
 describe('DashboardScreen', () => {
+  beforeEach(async () => {
+    await initializeStorage();
+  });
+
   it('renders the hero balance card and headline on first launch', () => {
     renderDashboard();
 

@@ -14,6 +14,7 @@ import {
 
 import { AppDataProvider } from './src/context/AppDataContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { AppGate } from './src/features/lock/AppGate';
 import DashboardScreen from './src/features/dashboard/DashboardScreen';
 import TransactionsScreen from './src/features/transactions/TransactionsScreen';
 import BudgetsScreen from './src/features/budgets/BudgetsScreen';
@@ -90,11 +91,13 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AppDataProvider>
-          <ThemeProvider>
-            <AppNavigator />
-          </ThemeProvider>
-        </AppDataProvider>
+        <AppGate>
+          <AppDataProvider>
+            <ThemeProvider>
+              <AppNavigator />
+            </ThemeProvider>
+          </AppDataProvider>
+        </AppGate>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

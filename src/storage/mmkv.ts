@@ -1,10 +1,32 @@
 import { MMKV } from 'react-native-mmkv';
 import { Transaction, Budget, SmartInsight, AppSettings, BackupPayload } from '../types';
+import { getOrCreateStorageKey } from './secureKey';
 
-export const storage = new MMKV({
-  id: 'moneyflow-ai-storage',
-  encryptionKey: 'moneyflow-secure-key-offline'
-});
+let storage: MMKV | undefined;
+let initPromise: Promise<void> | undefined;
+
+/**
+ * Fetches (or generates) the real encryption key from the platform Keychain
+ * and opens the MMKV instance with it. Must be awaited once during app
+ * bootstrap (see AppGate) before any AppStorage method is called.
+ */
+export function initializeStorage(): Promise<void> {
+  if (!initPromise) {
+    initPromise = getOrCreateStorageKey().then((encryptionKey) => {
+      storage = new MMKV({ id: 'moneyflow-ai-storage', encryptionKey });
+    });
+  }
+  return initPromise;
+}
+
+function getStorage(): MMKV {
+  if (!storage) {
+    throw new Error(
+      'Storage accessed before initializeStorage() resolved. Await initializeStorage() during app bootstrap before rendering any screen that touches AppStorage.'
+    );
+  }
+  return storage;
+}
 
 export const StorageKeys = {
   TRANSACTIONS: 'moneyflow_transactions',
@@ -57,11 +79,11 @@ function safeParse<T>(raw: string | undefined, fallback: T): T {
 }
 
 function safeGet<T>(key: string, fallback: T): T {
-  return safeParse(storage.getString(key), fallback);
+  return safeParse(getStorage().getString(key), fallback);
 }
 
 function safeSet(key: string, value: unknown): void {
-  storage.set(key, JSON.stringify(value));
+  getStorage().set(key, JSON.stringify(value));
 }
 
 export const AppStorage = {
@@ -78,7 +100,7 @@ export const AppStorage = {
     safeSet(StorageKeys.BUDGETS, budgets);
   },
   getBudgets: (): Budget[] => {
-    const hasOnboarded = storage.getBoolean(StorageKeys.ONBOARDED);
+    const hasOnboarded = getStorage().getBoolean(StorageKeys.ONBOARDED);
     const budgets = safeGet<Budget[] | null>(StorageKeys.BUDGETS, null as unknown as Budget[]);
     if (budgets && budgets.length > 0) return budgets;
     if (!hasOnboarded) {
@@ -118,7 +140,7 @@ export const AppStorage = {
   // Mark first-run onboarding as complete (stops re-seeding default budgets
   // after the user has deleted them all intentionally).
   markOnboarded: (): void => {
-    storage.set(StorageKeys.ONBOARDED, true);
+    getStorage().set(StorageKeys.ONBOARDED, true);
   },
 
   // Export everything into a single portable JSON payload.
@@ -155,6 +177,6 @@ export const AppStorage = {
 
   // Clear all data (Factory Reset)
   clearAll: (): void => {
-    storage.clearAll();
+    getStorage().clearAll();
   }
 };

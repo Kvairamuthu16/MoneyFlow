@@ -8,6 +8,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { AppSettings } from '../../types';
+import { LockScreen } from '../lock/LockScreen';
 
 const THEME_OPTIONS: { value: AppSettings['theme']; label: string; icon: (color: string) => React.ReactNode }[] = [
   { value: 'light', label: 'Light', icon: (c) => <Sun size={14} color={c} /> },
@@ -27,6 +28,15 @@ export default function SettingsScreen() {
   const { settings, updateSettings, clearAllData, exportBackup, importBackup } = useAppData();
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState('');
+  const [showPinSetup, setShowPinSetup] = useState(false);
+
+  const handleBiometricToggle = (value: boolean) => {
+    if (value) {
+      setShowPinSetup(true);
+    } else {
+      updateSettings({ biometricLockEnabled: false });
+    }
+  };
 
   const handleReset = () => {
     Alert.alert(
@@ -193,7 +203,7 @@ export default function SettingsScreen() {
               </View>
               <Switch
                 value={settings.biometricLockEnabled}
-                onValueChange={(value) => updateSettings({ biometricLockEnabled: value })}
+                onValueChange={handleBiometricToggle}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
               />
             </View>
@@ -287,6 +297,17 @@ export default function SettingsScreen() {
             </View>
           </Pressable>
         </Pressable>
+      </Modal>
+
+      {/* Biometric Lock Setup */}
+      <Modal visible={showPinSetup} animationType="slide" onRequestClose={() => setShowPinSetup(false)}>
+        <LockScreen
+          mode="setup"
+          onSuccess={() => {
+            setShowPinSetup(false);
+            updateSettings({ biometricLockEnabled: true });
+          }}
+        />
       </Modal>
     </SafeAreaView>
   );

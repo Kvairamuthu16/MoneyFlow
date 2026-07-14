@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { AppStorage } from '../storage/mmkv';
-import { syncSmsTransactions, SmsScanRange } from '../services/smsSync';
+import { SmsSyncWorker, SmsScanRange, ImportResult } from '../services/sms';
 import { AppSettings, BackupPayload, Budget, SmartInsight, Transaction } from '../types';
 
 interface AppDataContextValue {
@@ -19,7 +19,7 @@ interface AppDataContextValue {
   addBudget: (budget: Pick<Budget, 'category' | 'limit'>) => void;
   updateBudgetLimit: (category: string, limit: number) => void;
   deleteBudget: (category: string) => void;
-  syncSms: (range?: SmsScanRange) => Promise<{ added: number; total: number; scanned: number }>;
+  syncSms: (range?: SmsScanRange) => Promise<ImportResult>;
   exportBackup: () => BackupPayload;
   importBackup: (payload: unknown) => boolean;
   clearAllData: () => void;
@@ -165,7 +165,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     async (range: SmsScanRange = 'all') => {
       setIsSyncing(true);
       try {
-        const result = await syncSmsTransactions(range);
+        const result = await SmsSyncWorker.sync(range);
         refresh();
         return result;
       } finally {

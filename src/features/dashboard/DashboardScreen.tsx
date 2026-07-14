@@ -23,7 +23,7 @@ import { KpiCard } from '../../components/KpiCard';
 import { MonthSelector } from '../../components/MonthSelector';
 import { useResponsive } from '../../hooks/useResponsive';
 import { getDaysElapsed } from '../../utils/date';
-import { SmsScanRange } from '../../services/smsSync';
+import { SmsScanRange } from '../../services/sms';
 
 const SCAN_RANGE_OPTIONS: { value: SmsScanRange; label: string; hint: string }[] = [
   { value: 'day', label: 'Today', hint: 'Messages from the last 24 hours' },

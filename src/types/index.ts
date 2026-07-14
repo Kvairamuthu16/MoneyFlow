@@ -1,21 +1,35 @@
 export type TransactionType = 'income' | 'expense';
 
-export type PaymentMethod = 
-  | 'UPI' 
-  | 'ATM' 
-  | 'Cash Withdrawal' 
-  | 'Bank Transfer' 
-  | 'Credit Card' 
-  | 'Debit Card' 
-  | 'Wallet' 
+export type PaymentMethod =
+  | 'UPI'
+  | 'ATM'
+  | 'Cash Withdrawal'
+  | 'Cash Deposit'
+  | 'Bank Transfer'
+  | 'NEFT'
+  | 'RTGS'
+  | 'IMPS'
+  | 'Credit Card'
+  | 'Debit Card'
+  | 'Tap & Pay'
+  | 'Wallet'
   | 'Cash'
+  | 'Standing Instruction'
+  | 'Auto Debit'
+  | 'Cheque'
+  | 'FASTag'
   | 'Other';
 
 export interface Transaction {
   id: string;
   amount: number;
+  currency: string; // ISO-ish code or symbol as seen in the SMS, e.g. "INR", "USD"
   merchant: string;
+  receiverName?: string; // who the money went to, when distinct from the parsed merchant string
+  senderName?: string; // who the money came from, for credit/income messages
+  upiId?: string; // VPA, e.g. "merchant@okhdfcbank"
   bank: string;
+  accountLast4?: string; // last 3-4 digits of the account/card the SMS referenced, for multi-account households
   date: string; // YYYY-MM-DD
   time?: string; // HH:MM
   type: TransactionType;

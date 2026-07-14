@@ -34,7 +34,9 @@ export const StorageKeys = {
   INSIGHTS: 'moneyflow_insights',
   SETTINGS: 'moneyflow_settings',
   PARSED_SMS_IDS: 'moneyflow_parsed_sms_ids',
-  ONBOARDED: 'moneyflow_onboarded'
+  ONBOARDED: 'moneyflow_onboarded',
+  MERCHANT_CATEGORY_OVERRIDES: 'moneyflow_merchant_category_overrides',
+  LAST_SYNCED_AT: 'moneyflow_last_synced_at'
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -49,8 +51,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 // first launch. Limits are reasonable defaults for an Indian household;
 // spent is always recomputed from real transactions, never trusted from here.
 //
-// Category names here MUST match what SmartOfflineSMSParser.autoCategorize()
-// (src/services/smsParser.ts) actually produces -- otherwise parsed
+// Category names here MUST match what CategoryEngine.categorize()
+// (src/services/sms/CategoryEngine.ts) actually produces -- otherwise parsed
 // transactions silently never count against any budget.
 export const SEED_BUDGETS: Budget[] = [
   { category: 'Food', limit: 8000, spent: 0 },
@@ -141,6 +143,25 @@ export const AppStorage = {
   // after the user has deleted them all intentionally).
   markOnboarded: (): void => {
     getStorage().set(StorageKeys.ONBOARDED, true);
+  },
+
+  // Merchant -> category corrections the user has made, so the category
+  // engine can auto-apply them to future transactions from the same merchant.
+  getMerchantOverrides: (): Record<string, string> => {
+    return safeGet<Record<string, string>>(StorageKeys.MERCHANT_CATEGORY_OVERRIDES, {});
+  },
+  saveMerchantOverrides: (overrides: Record<string, string>): void => {
+    safeSet(StorageKeys.MERCHANT_CATEGORY_OVERRIDES, overrides);
+  },
+
+  // Cursor for incremental SMS sync -- lets a broad "all time" refresh skip
+  // straight to messages newer than the last successful sync instead of
+  // re-reading (and re-skipping, by ID) the entire inbox every time.
+  getLastSyncedAt: (): number | undefined => {
+    return safeGet<number | undefined>(StorageKeys.LAST_SYNCED_AT, undefined);
+  },
+  saveLastSyncedAt: (timestamp: number): void => {
+    safeSet(StorageKeys.LAST_SYNCED_AT, timestamp);
   },
 
   // Export everything into a single portable JSON payload.

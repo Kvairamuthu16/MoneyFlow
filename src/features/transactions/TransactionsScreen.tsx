@@ -17,7 +17,8 @@ import {
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Chip } from '../../components/Chip';
-import { ALL_CATEGORIES } from '../../services/smsParser';
+import { ALL_CATEGORIES, LearningService } from '../../services/sms';
+import { getAccountLabel } from '../../services/accountLabel';
 import { Transaction } from '../../types';
 
 const RECATEGORIZE_OPTIONS: string[] = [...ALL_CATEGORIES];
@@ -45,9 +46,17 @@ export default function TransactionsScreen() {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedAccount, setSelectedAccount] = useState('All');
 
   const categories = useMemo(() => {
     const list = new Set(transactions.map((t) => t.category));
+    return ['All', ...Array.from(list)];
+  }, [transactions]);
+
+  // Accounts are derived automatically from parsed SMS (bank + masked last
+  // digits) -- there's no separate manually-managed "accounts" entity yet.
+  const accounts = useMemo(() => {
+    const list = new Set(transactions.map((t) => getAccountLabel(t.bank, t.accountLast4)));
     return ['All', ...Array.from(list)];
   }, [transactions]);
 
@@ -57,7 +66,11 @@ export default function TransactionsScreen() {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
-        (t) => t.merchant.toLowerCase().includes(q) || t.bank.toLowerCase().includes(q) || (t.sourceText && t.sourceText.toLowerCase().includes(q))
+        (t) =>
+          t.merchant.toLowerCase().includes(q) ||
+          t.bank.toLowerCase().includes(q) ||
+          (t.accountLast4 && t.accountLast4.includes(q)) ||
+          (t.sourceText && t.sourceText.toLowerCase().includes(q))
       );
     }
 
@@ -67,6 +80,10 @@ export default function TransactionsScreen() {
 
     if (selectedCategory !== 'All') {
       result = result.filter((t) => t.category === selectedCategory);
+    }
+
+    if (selectedAccount !== 'All') {
+      result = result.filter((t) => getAccountLabel(t.bank, t.accountLast4) === selectedAccount);
     }
 
     result.sort((a, b) => {
@@ -80,7 +97,7 @@ export default function TransactionsScreen() {
     });
 
     return result;
-  }, [transactions, searchQuery, typeFilter, selectedCategory, sortBy]);
+  }, [transactions, searchQuery, typeFilter, selectedCategory, selectedAccount, sortBy]);
 
   const summary = useMemo(() => {
     let income = 0;
@@ -110,19 +127,24 @@ export default function TransactionsScreen() {
     return out;
   }, [processedTransactions, sortBy]);
 
-  const hasActiveFilters = searchQuery.trim() !== '' || typeFilter !== 'all' || selectedCategory !== 'All' || sortBy !== 'newest';
+  const hasActiveFilters =
+    searchQuery.trim() !== '' || typeFilter !== 'all' || selectedCategory !== 'All' || selectedAccount !== 'All' || sortBy !== 'newest';
 
   const resetFilters = () => {
     setSearchQuery('');
     setTypeFilter('all');
     setSelectedCategory('All');
+    setSelectedAccount('All');
     setSortBy('newest');
   };
 
-  const handleCategoryChange = (id: string, currentCategory: string) => {
+  const handleCategoryChange = (id: string, currentCategory: string, merchant: string) => {
     const curIdx = RECATEGORIZE_OPTIONS.indexOf(currentCategory);
     const nextCat = RECATEGORIZE_OPTIONS[(curIdx + 1) % RECATEGORIZE_OPTIONS.length];
     updateTransaction(id, { category: nextCat });
+    // Remember this merchant -> category correction so future SMS from the
+    // same merchant are auto-categorized this way (see LearningService).
+    LearningService.recordCorrection(merchant, nextCat);
   };
 
   const renderRightActions = (
@@ -135,7 +157,7 @@ export default function TransactionsScreen() {
       <View style={{ flexDirection: 'row', marginBottom: 10 }}>
         <TouchableOpacity
           onPress={() => {
-            handleCategoryChange(tx.id, tx.category);
+            handleCategoryChange(tx.id, tx.category, tx.merchant);
             swipeable.close();
           }}
           style={{ width: 64, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}
@@ -197,7 +219,7 @@ export default function TransactionsScreen() {
                   {tx.merchant}
                 </Text>
                 <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 }}>
-                  {tx.category} • {tx.bank} • {tx.paymentMethod}
+                  {tx.category} • {getAccountLabel(tx.bank, tx.accountLast4)} • {tx.paymentMethod}
                 </Text>
                 {tx.sourceText && (
                   <Text numberOfLines={1} style={{ color: theme.colors.textMuted, fontSize: 9, marginTop: 3, opacity: 0.8 }}>
@@ -295,6 +317,17 @@ export default function TransactionsScreen() {
               ))}
             </View>
           </View>
+
+          {accounts.length > 2 && (
+            <View>
+              <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 }}>Account</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {accounts.map((acc) => (
+                  <Chip key={acc} label={acc} selected={selectedAccount === acc} onPress={() => setSelectedAccount(acc)} />
+                ))}
+              </View>
+            </View>
+          )}
 
           {hasActiveFilters && (
             <TouchableOpacity onPress={resetFilters} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}>

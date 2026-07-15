@@ -14,11 +14,16 @@ import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/Card';
 import { MonthSelector } from '../../components/MonthSelector';
 import { formatYearMonth, getRecentMonths } from '../../utils/date';
+import { computeAccountSummaries } from '../../utils/accountSummary';
 
 export default function AnalyticsScreen() {
   const theme = useTheme();
   const { format } = useCurrency();
   const { settings, setSelectedMonth, transactions, monthlyTransactions, budgets } = useAppData();
+
+  // Only meaningful to show once there's more than one distinct bank/account.
+  const accountSummaries = useMemo(() => computeAccountSummaries(transactions, settings.selectedMonth), [transactions, settings.selectedMonth]);
+  const accountMonthTotal = useMemo(() => accountSummaries.reduce((s, a) => s + a.monthExpense, 0), [accountSummaries]);
 
   const categorySummary = useMemo(() => {
     const summary: Record<string, number> = {};
@@ -199,6 +204,35 @@ export default function AnalyticsScreen() {
             )}
           </Card>
         </Animated.View>
+
+        {/* Bank/Account Breakdown -- segregated spend, only worth showing with more than one account */}
+        {accountSummaries.length > 1 && (
+          <Animated.View entering={FadeIn.delay(180)} style={{ paddingHorizontal: 24, marginBottom: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Landmark size={16} color={theme.colors.accent} />
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: '700' }}>Spend By Bank/Account</Text>
+            </View>
+
+            <Card style={{ gap: 14 }}>
+              {accountSummaries.map((account, idx) => {
+                const pct = accountMonthTotal > 0 ? (account.monthExpense / accountMonthTotal) * 100 : 0;
+                return (
+                  <View key={account.label} style={{ gap: 6 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>{account.label}</Text>
+                      <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700' }}>
+                        {format(account.monthExpense)} ({pct.toFixed(0)}%)
+                      </Text>
+                    </View>
+                    <View style={{ height: 6, borderRadius: 3, backgroundColor: theme.colors.surfaceAlt, overflow: 'hidden' }}>
+                      <View style={{ width: `${pct}%`, height: '100%', backgroundColor: theme.chartPalette[idx % theme.chartPalette.length] }} />
+                    </View>
+                  </View>
+                );
+              })}
+            </Card>
+          </Animated.View>
+        )}
 
         {/* Merchant Analysis */}
         <Animated.View entering={FadeIn.delay(200)} style={{ paddingHorizontal: 24, marginBottom: 20 }}>

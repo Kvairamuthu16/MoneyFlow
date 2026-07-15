@@ -2,7 +2,9 @@ import { AppStorage } from '../../storage/mmkv';
 import { SmsPermissionService } from './SmsPermissionService';
 import { SmsReaderService } from './SmsReaderService';
 import { TransactionImportService } from './TransactionImportService';
+import { persistImportOutcome } from './ImportPersistence';
 import { ImportProgress, ImportResult, SmsScanRange } from './types';
+import { NotificationOrchestrator } from '../notifications';
 
 /** Returns the epoch-ms start of the requested scan range, or undefined for 'all' (no lower bound). */
 export function getScanRangeStart(range: SmsScanRange, now: Date = new Date()): number | undefined {
@@ -49,15 +51,14 @@ export const SmsSyncWorker = {
     const { storeRawSmsBody } = AppStorage.getSettings();
 
     const outcome = await TransactionImportService.importMessages(messages, existingTransactions, parsedIds, onProgress, { storeRawSmsBody });
-
-    if (outcome.newTransactions.length > 0) {
-      AppStorage.saveTransactions([...outcome.newTransactions, ...existingTransactions]);
-    }
-    if (outcome.newlyParsedIds.length > 0) {
-      AppStorage.saveParsedSMSIds([...parsedIds, ...outcome.newlyParsedIds]);
-    }
+    persistImportOutcome(outcome, existingTransactions, parsedIds);
 
     AppStorage.saveLastSyncedAt(syncStartedAt);
+
+    if (outcome.newTransactions.length > 0) {
+      const allTransactions = [...outcome.newTransactions, ...existingTransactions];
+      await NotificationOrchestrator.onTransactionsImported(outcome.newTransactions, allTransactions, AppStorage.getBudgets());
+    }
 
     const settings = AppStorage.getSettings();
     AppStorage.saveSettings({ ...settings, smsPermissionGranted: true });

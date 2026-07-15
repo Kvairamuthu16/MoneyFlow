@@ -23,7 +23,7 @@ import SettingsScreen from './src/features/settings/SettingsScreen';
 
 export type RootTabParamList = {
   Dashboard: undefined;
-  Transactions: undefined;
+  Transactions: { accountFilter?: string } | undefined;
   Budgets: undefined;
   Analytics: undefined;
   Settings: undefined;

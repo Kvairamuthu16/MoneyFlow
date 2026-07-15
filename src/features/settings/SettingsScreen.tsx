@@ -2,14 +2,15 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Switch, Alert, Share, Modal, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { User, Moon, Sun, Monitor, Coins, Database, FileSpreadsheet, Sparkles, Lock, Upload, Users, FileText } from 'lucide-react-native';
+import { User, Moon, Sun, Monitor, Coins, Database, FileSpreadsheet, Sparkles, Lock, Upload, Users, FileText, Radio, Bell } from 'lucide-react-native';
 import { useAppData } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { AppSettings } from '../../types';
 import { LockScreen } from '../lock/LockScreen';
-import { ContactResolverService } from '../../services/sms';
+import { ContactResolverService, SmsPermissionService } from '../../services/sms';
+import { NotificationService } from '../../services/notifications';
 
 const THEME_OPTIONS: { value: AppSettings['theme']; label: string; icon: (color: string) => React.ReactNode }[] = [
   { value: 'light', label: 'Light', icon: (c) => <Sun size={14} color={c} /> },
@@ -53,6 +54,31 @@ export default function SettingsScreen() {
 
   const handleRawSmsToggle = (value: boolean) => {
     updateSettings({ storeRawSmsBody: value });
+  };
+
+  const handleRealtimeToggle = async (value: boolean) => {
+    if (!value) {
+      updateSettings({ realtimeSmsDetectionEnabled: false });
+      return;
+    }
+    await SmsPermissionService.request();
+    const hasRealtime = await SmsPermissionService.hasRealtimePermission();
+    updateSettings({ realtimeSmsDetectionEnabled: hasRealtime });
+    if (!hasRealtime) {
+      Alert.alert('Permission Denied', 'Real-time detection will stay off until you grant SMS access. Manual scan/refresh still works.');
+    }
+  };
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    if (!value) {
+      updateSettings({ notificationsEnabled: false });
+      return;
+    }
+    const granted = await NotificationService.requestPermission();
+    updateSettings({ notificationsEnabled: granted });
+    if (!granted) {
+      Alert.alert('Permission Denied', 'Budget alerts, salary credits, and bill reminders will stay off until you allow notifications.');
+    }
   };
 
   const handleReset = () => {
@@ -238,6 +264,40 @@ export default function SettingsScreen() {
               <Switch
                 value={settings.contactsPermissionGranted}
                 onValueChange={handleContactsToggle}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ padding: 8, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12 }}>
+                  <Radio size={16} color={theme.colors.accent} />
+                </View>
+                <View>
+                  <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>Real-Time SMS Detection</Text>
+                  <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>Import transactions the instant a bank SMS arrives</Text>
+                </View>
+              </View>
+              <Switch
+                value={settings.realtimeSmsDetectionEnabled}
+                onValueChange={handleRealtimeToggle}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ padding: 8, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12 }}>
+                  <Bell size={16} color={theme.colors.accent} />
+                </View>
+                <View>
+                  <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>Smart Notifications</Text>
+                  <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>Budget alerts, salary credits, bill-due reminders</Text>
+                </View>
+              </View>
+              <Switch
+                value={settings.notificationsEnabled}
+                onValueChange={handleNotificationsToggle}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
               />
             </View>

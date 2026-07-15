@@ -14,7 +14,8 @@ import {
   Flame,
   PiggyBank,
   ScanLine,
-  PieChart
+  PieChart,
+  Landmark
 } from 'lucide-react-native';
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -23,6 +24,7 @@ import { KpiCard } from '../../components/KpiCard';
 import { MonthSelector } from '../../components/MonthSelector';
 import { useResponsive } from '../../hooks/useResponsive';
 import { getDaysElapsed } from '../../utils/date';
+import { computeAccountSummaries } from '../../utils/accountSummary';
 import { SmsScanRange } from '../../services/sms';
 
 const SCAN_RANGE_OPTIONS: { value: SmsScanRange; label: string; hint: string }[] = [
@@ -36,9 +38,14 @@ export default function DashboardScreen({ navigation }: any) {
   const theme = useTheme();
   const { format } = useCurrency();
   const { kpiColumns } = useResponsive();
-  const { settings, setSelectedMonth, monthlyTransactions, insights, isSyncing, syncSms } = useAppData();
+  const { settings, transactions, setSelectedMonth, monthlyTransactions, insights, isSyncing, syncSms } = useAppData();
   const [refreshing, setRefreshing] = useState(false);
   const [showScanModal, setShowScanModal] = useState(false);
+
+  // Only worth showing once there's more than one distinct bank/account to
+  // actually segregate -- for a single-account household this would just
+  // duplicate the hero card.
+  const accountSummaries = useMemo(() => computeAccountSummaries(transactions, settings.selectedMonth), [transactions, settings.selectedMonth]);
 
   const { income, expense, remainingSafe, savingsRate, dailyBurn } = useMemo(() => {
     let inc = 0;
@@ -198,6 +205,46 @@ export default function DashboardScreen({ navigation }: any) {
             </TouchableOpacity>
           </View>
         </Animated.View>
+
+        {/* Accounts -- segregated by bank + account, only worth showing with more than one */}
+        {accountSummaries.length > 1 && (
+          <Animated.View entering={FadeIn.delay(320)} style={{ paddingHorizontal: 24, marginBottom: 24 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Landmark size={16} color={theme.colors.accent} />
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: '700' }}>Accounts</Text>
+            </View>
+            <View style={{ gap: 10 }}>
+              {accountSummaries.map((account) => (
+                <TouchableOpacity
+                  key={account.label}
+                  onPress={() => navigation.navigate('Transactions', { accountFilter: account.label })}
+                  activeOpacity={0.75}
+                >
+                  <Card style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
+                      <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{account.label}</Text>
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 3 }}>
+                        {account.transactionCount} transaction{account.transactionCount === 1 ? '' : 's'} •{' '}
+                        <Text style={{ color: theme.colors.success }}>+{format(account.monthIncome)}</Text>{' '}
+                        <Text style={{ color: theme.colors.danger }}>-{format(account.monthExpense)}</Text>
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      {account.latestBalance !== undefined ? (
+                        <>
+                          <Text style={{ color: theme.colors.textPrimary, fontSize: 14, fontWeight: '800' }}>{format(account.latestBalance)}</Text>
+                          <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '600', marginTop: 2 }}>as of {account.lastActivityDate}</Text>
+                        </>
+                      ) : (
+                        <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600' }}>Balance unknown</Text>
+                      )}
+                    </View>
+                  </Card>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Animated.View>
+        )}
 
         {/* Offline SMART INSIGHTS section */}
         <Animated.View entering={FadeIn.delay(350)} style={{ paddingHorizontal: 24, marginBottom: 24 }}>

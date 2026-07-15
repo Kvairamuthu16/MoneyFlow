@@ -1,5 +1,10 @@
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** The actual current calendar month as "YYYY-MM" -- distinct from settings.selectedMonth, which is whatever month the user happens to be browsing in the UI. */
+export function getCurrentYearMonth(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function formatYearMonth(yearMonth: string): string {
   const [y, m] = yearMonth.split('-').map(Number);
   if (!y || !m) return yearMonth;

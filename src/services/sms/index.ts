@@ -10,4 +10,6 @@ export * from './SmsReaderService';
 export * from './ContactResolverService';
 export * from './PartyLabelService';
 export * from './TransactionImportService';
+export * from './ImportPersistence';
 export * from './SmsSyncWorker';
+export * from './backgroundSmsTask';

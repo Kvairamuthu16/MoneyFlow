@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Animated as RNAnimated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -37,7 +37,7 @@ function dateGroupLabel(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-export default function TransactionsScreen() {
+export default function TransactionsScreen({ route }: any) {
   const theme = useTheme();
   const { format } = useCurrency();
   const { transactions, deleteTransaction, updateTransaction } = useAppData();
@@ -46,7 +46,17 @@ export default function TransactionsScreen() {
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedAccount, setSelectedAccount] = useState('All');
+  const [selectedAccount, setSelectedAccount] = useState(route?.params?.accountFilter || 'All');
+
+  // Coming from Dashboard's "jump to this account" tap re-applies the filter
+  // even if this tab was already mounted (tab navigators don't remount on
+  // re-navigation, so a state initializer alone wouldn't catch that case).
+  useEffect(() => {
+    if (route?.params?.accountFilter) {
+      setSelectedAccount(route.params.accountFilter);
+      setShowFilters(true);
+    }
+  }, [route?.params?.accountFilter]);
 
   const categories = useMemo(() => {
     const list = new Set(transactions.map((t) => t.category));

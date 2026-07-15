@@ -80,7 +80,9 @@ export interface AppSettings {
   selectedMonth: string; // YYYY-MM (e.g. "2026-07")
   biometricLockEnabled: boolean;
   contactsPermissionGranted: boolean;
+  realtimeSmsDetectionEnabled: boolean; // RECEIVE_SMS granted -- native listener (see android/.../SmsReceiver.kt) is active
   storeRawSmsBody: boolean; // privacy: off by default -- sourceText is only persisted when the user opts in
+  notificationsEnabled: boolean; // budget-threshold, salary-credited, and bill-due-soon local notifications
 }
 
 export interface BackupPayload {

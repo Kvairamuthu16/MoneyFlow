@@ -1,6 +1,7 @@
 import { MMKV } from 'react-native-mmkv';
 import { Transaction, Budget, SmartInsight, AppSettings, BackupPayload } from '../types';
 import { getOrCreateStorageKey } from './secureKey';
+import { getCurrentYearMonth } from '../utils/date';
 
 let storage: MMKV | undefined;
 let initPromise: Promise<void> | undefined;
@@ -37,17 +38,20 @@ export const StorageKeys = {
   ONBOARDED: 'moneyflow_onboarded',
   MERCHANT_CATEGORY_OVERRIDES: 'moneyflow_merchant_category_overrides',
   PARTY_LABEL_OVERRIDES: 'moneyflow_party_label_overrides',
-  LAST_SYNCED_AT: 'moneyflow_last_synced_at'
+  LAST_SYNCED_AT: 'moneyflow_last_synced_at',
+  NOTIFIED_BUDGET_ALERT_KEYS: 'moneyflow_notified_budget_alert_keys'
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   currency: 'INR',
   smsPermissionGranted: false,
-  selectedMonth: currentYearMonth(),
+  selectedMonth: getCurrentYearMonth(),
   biometricLockEnabled: false,
   contactsPermissionGranted: false,
-  storeRawSmsBody: false
+  realtimeSmsDetectionEnabled: false,
+  storeRawSmsBody: false,
+  notificationsEnabled: false
 };
 
 // A starter set of budget categories so the Budgets screen isn't empty on
@@ -66,11 +70,6 @@ export const SEED_BUDGETS: Budget[] = [
   { category: 'Entertainment', limit: 2000, spent: 0 },
   { category: 'Other', limit: 3000, spent: 0 }
 ];
-
-function currentYearMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
 
 /** Parses JSON safely, returning `fallback` instead of throwing on corrupt/missing data. */
 function safeParse<T>(raw: string | undefined, fallback: T): T {
@@ -175,6 +174,16 @@ export const AppStorage = {
   },
   saveLastSyncedAt: (timestamp: number): void => {
     safeSet(StorageKeys.LAST_SYNCED_AT, timestamp);
+  },
+
+  // Which (category, month, threshold) budget alerts have already fired, so
+  // crossing 80% doesn't re-notify on every subsequent transaction that
+  // month.
+  getNotifiedBudgetAlertKeys: (): string[] => {
+    return safeGet<string[]>(StorageKeys.NOTIFIED_BUDGET_ALERT_KEYS, []);
+  },
+  saveNotifiedBudgetAlertKeys: (keys: string[]): void => {
+    safeSet(StorageKeys.NOTIFIED_BUDGET_ALERT_KEYS, keys);
   },
 
   // Export everything into a single portable JSON payload.

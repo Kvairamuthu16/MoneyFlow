@@ -5,13 +5,52 @@ The SMS transaction pipeline lives in `src/services/sms/`. It runs, in order:
 ```
 SmsFilterService -> SmsParserService -> MerchantNormalizationService
   -> CategoryEngine (+ LearningService) -> ContactResolverService (+ PartyLabelService)
-  -> DuplicateDetectionService -> TransactionImportService -> SmsSyncWorker
+  -> DuplicateDetectionService -> TransactionImportService
 ```
 
 Each stage is a standalone module with its own unit tests under `__tests__/sms/`.
 `TransactionImportService` is the only place that wires them together; nothing
 else in the app imports the individual stages directly except via the
 `src/services/sms` barrel.
+
+Two different callers feed messages into that same pipeline:
+
+- **`SmsSyncWorker`** -- manual scan / pull-to-refresh. Reads a batch from the
+  inbox (`SmsReaderService`), runs the whole batch through
+  `TransactionImportService`, persists via `ImportPersistence`.
+- **`backgroundSmsTask`** -- the real-time path (see below). Runs a *single*
+  message through the exact same `TransactionImportService` and
+  `ImportPersistence`, so there is only one place the actual
+  filter/parse/categorize logic lives.
+
+## Real-time background detection
+
+`android/app/src/main/java/com/moneyflowai/SmsReceiver.kt` is a manifest-declared
+`BroadcastReceiver` for `SMS_RECEIVED` -- Android starts it (even if the app
+isn't running) whenever an SMS arrives. It hands the sender/body/timestamp to
+`SmsHeadlessTaskService.kt`, which boots a short-lived JS engine to run the
+`"SmsBackgroundImport"` headless task registered in `index.js`
+(`src/services/sms/backgroundSmsTask.ts`). That task calls
+`TransactionImportService` with the one new message and persists the result
+the same way `SmsSyncWorker` does. If the app happens to be open at the time,
+`backgroundSmsTask` also emits a `MoneyFlowTransactionsUpdated` event
+(`DeviceEventEmitter`) that `AppDataProvider` listens for, so the UI updates
+live instead of waiting for the next manual refresh.
+
+Requires the `RECEIVE_SMS` permission (requested alongside `READ_SMS` in
+`SmsPermissionService`, with its own rationale) and a Settings toggle
+("Real-Time SMS Detection") that reflects whether it's currently granted. A
+denial just means the app falls back to manual scan/refresh -- `READ_SMS`
+alone is sufficient for that.
+
+**Verification limits, stated plainly:** the JS side (`backgroundSmsTask.ts`)
+has real unit tests (`__tests__/sms/backgroundSmsTask.test.ts`) and the Kotlin
+compiles as part of the normal Android build. What *cannot* be verified from
+this dev environment is the actual end-to-end behavior on a device -- does a
+real incoming SMS actually wake the receiver, does the headless task run to
+completion before Android reclaims the process, does it behave correctly
+across different OEM battery-optimization/Doze-mode restrictions. That needs
+an installed APK and a real test SMS on a physical device.
 
 This app is 100% offline with no backend, so "configurable without code
 changes" means: **the data lives in JSON files, separate from the business
@@ -73,11 +112,6 @@ to make it selectable everywhere in the app.
 
 ## What stays out of scope here
 
-- **Real-time background listening.** The pipeline above runs on manual
-  scan / pull-to-refresh today. A live `SMS_RECEIVED` broadcast receiver is a
-  native Android module (Java/Kotlin + a `RECEIVE_SMS` manifest entry) that
-  hasn't been built yet -- it's a separate, CI-verified piece of work, not a
-  JS/TS change.
 - **A hosted/cloud AI fallback parser.** When structured regex patterns and
   known-merchant hints don't recognize a message, `SmsParserService` falls
   back to a deterministic heuristic (a Title Case proper-noun scan), not a

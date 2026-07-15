@@ -1,7 +1,10 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { DeviceEventEmitter } from 'react-native';
 import { AppStorage } from '../storage/mmkv';
-import { SmsSyncWorker, SmsScanRange, ImportResult } from '../services/sms';
+import { SmsSyncWorker, SmsScanRange, ImportResult, TRANSACTIONS_UPDATED_EVENT } from '../services/sms';
 import { AppSettings, BackupPayload, Budget, SmartInsight, Transaction } from '../types';
+import { computeBudgetsWithSpent } from '../utils/budgets';
+import { CURRENCY_SYMBOLS, CURRENCY_LOCALES, formatCurrency } from '../utils/currency';
 
 interface AppDataContextValue {
   settings: AppSettings;
@@ -27,16 +30,6 @@ interface AppDataContextValue {
 
 const AppDataContext = createContext<AppDataContextValue | undefined>(undefined);
 
-function computeBudgetsWithSpent(budgetConfigs: Budget[], transactions: Transaction[], selectedMonth: string): Budget[] {
-  const spentByCategory: Record<string, number> = {};
-  for (const t of transactions) {
-    if (t.type === 'expense' && t.date.startsWith(selectedMonth)) {
-      spentByCategory[t.category] = (spentByCategory[t.category] || 0) + t.amount;
-    }
-  }
-  return budgetConfigs.map((b) => ({ ...b, spent: spentByCategory[b.category] || 0 }));
-}
-
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettingsState] = useState<AppSettings>(() => AppStorage.getSettings());
   const [transactions, setTransactionsState] = useState<Transaction[]>(() => AppStorage.getTransactions());
@@ -48,6 +41,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setTransactionsState(AppStorage.getTransactions());
     setBudgetConfigsState(AppStorage.getBudgets());
   }, []);
+
+  // The native real-time SMS listener (see backgroundSmsTask.ts) can import a
+  // transaction while this screen is mounted but the app was backgrounded --
+  // this keeps the UI in sync without waiting for the next manual refresh.
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(TRANSACTIONS_UPDATED_EVENT, refresh);
+    return () => subscription.remove();
+  }, [refresh]);
 
   const budgets = useMemo(
     () => computeBudgetsWithSpent(budgetConfigs, transactions, settings.selectedMonth),
@@ -224,36 +225,12 @@ export function useAppData(): AppDataContextValue {
   return ctx;
 }
 
-const CURRENCY_SYMBOLS: Record<AppSettings['currency'], string> = {
-  INR: '₹',
-  USD: '$',
-  EUR: '€',
-  GBP: '£'
-};
-
-const CURRENCY_LOCALES: Record<AppSettings['currency'], string> = {
-  INR: 'en-IN',
-  USD: 'en-US',
-  EUR: 'de-DE',
-  GBP: 'en-GB'
-};
-
 export function useCurrency() {
   const { settings } = useAppData();
   const symbol = CURRENCY_SYMBOLS[settings.currency];
   const locale = CURRENCY_LOCALES[settings.currency];
 
-  const format = useCallback(
-    (value: number, options?: Intl.NumberFormatOptions) => {
-      const formatted = Math.abs(value).toLocaleString(locale, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-        ...options
-      });
-      return `${value < 0 ? '-' : ''}${symbol}${formatted}`;
-    },
-    [locale, symbol]
-  );
+  const format = useCallback((value: number, options?: Intl.NumberFormatOptions) => formatCurrency(value, settings.currency, options), [settings.currency]);
 
   return { symbol, locale, format };
 }

@@ -216,7 +216,7 @@ export default function TransactionsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text numberOfLines={1} style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: '700' }}>
-                  {tx.merchant}
+                  {tx.contactName || tx.merchant}
                 </Text>
                 <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 }}>
                   {tx.category} • {getAccountLabel(tx.bank, tx.accountLast4)} • {tx.paymentMethod}

@@ -1,61 +1,44 @@
+import filterConfig from './config/financialKeywordFilters.json';
+
 /**
  * Pre-parse gate: decides whether a raw SMS is even worth handing to
  * SmsParserService. Runs cheap string checks before any regex extraction, so
  * OTPs / promos / delivery notifications never reach the parser.
+ *
+ * All keyword lists live in ./config/financialKeywordFilters.json -- adding
+ * or tuning a keyword is a data edit there, not a change to this file. See
+ * docs/sms-engine-extending.md.
  */
 
-// Any of these anywhere in the body means "not a transaction" -- unconditional,
-// per product spec (OTP/marketing/logistics copy never carries real payment data).
-const DENY_CONTENT_KEYWORDS = [
-  'otp',
-  'one time password',
-  'verification code',
-  'login code',
-  'password',
-  'authentication',
-  'kyc reminder',
-  'offer',
-  'cashback',
-  'coupon',
-  'sale',
-  'discount',
-  'loan offer',
-  'credit card offer',
-  'insurance',
-  'delivery',
-  'courier',
-  'tracking',
-  'ticket',
-  'booking',
-  'promotion',
-  'subscription',
-  'reward points',
-  'advertisement',
-  'spam',
-  'pre-approved',
-  'scratch card',
-  'win cash',
-  'invest now to earn'
-];
+// Unconditional: these phrases never co-occur with a genuine bank transaction
+// (OTP/marketing/logistics copy never carries real payment data), so any
+// match rejects the message regardless of what else it contains.
+const HARD_DENY_KEYWORDS: string[] = filterConfig.hardDenyKeywords;
+
+// Words that are STRONG marketing signals but can legitimately appear in a
+// real transaction message too (a genuine cashback credit, a subscription
+// renewal debit, an insurance premium debit). These only reject the message
+// when there's no real amount+verb evidence alongside them.
+const SOFT_DENY_KEYWORDS: string[] = filterConfig.softDenyKeywords;
 
 // DLT sender-header prefixes that are shared by transactional AND promotional
 // traffic alike -- by themselves they say nothing. Only combined with a known
 // promotional company name do they mark a sender worth suppressing (and even
 // then only absent real payment evidence in the body).
-const PROMOTIONAL_SENDER_COMPANY_KEYWORDS = ['amazon', 'flipkart', 'myntra', 'swiggy', 'zomato'];
+const PROMOTIONAL_SENDER_COMPANY_KEYWORDS: string[] = filterConfig.promotionalSenderCompanies;
 
 /** Amount pattern shared with SmsParserService so the filter's "real payment info" check stays in sync with what the parser can actually extract. */
 export const TRANSACTION_AMOUNT_REGEX = /(?:Rs\.?|INR|INR\.?|₹|USD|\$|EUR|£)\s?([\d,]+(?:\.\d{2})?)/i;
 
-export const TRANSACTION_VERB_REGEX =
-  /\b(spent|debited|charged|withdrawn|credited|deposited|sent|received|txn|payment to|transferred|transfer of|paid to|added to)\b/i;
+const escapedVerbs = (filterConfig.transactionVerbs as string[]).map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+export const TRANSACTION_VERB_REGEX = new RegExp(`\\b(${escapedVerbs.join('|')})\\b`, 'i');
 
 export function hasStrongTransactionSignal(text: string): boolean {
   return TRANSACTION_AMOUNT_REGEX.test(text) && TRANSACTION_VERB_REGEX.test(text);
 }
 
-function containsDenyKeyword(lowerText: string): boolean {
-  return DENY_CONTENT_KEYWORDS.some((kw) => lowerText.includes(kw));
+function containsAny(lowerText: string, keywords: string[]): boolean {
+  return keywords.some((kw) => lowerText.includes(kw));
 }
 
 /**
@@ -73,13 +56,12 @@ export function isLikelyBankSender(address?: string): boolean {
 
 function isPromotionalCompanySender(address?: string): boolean {
   if (!address) return false;
-  const lowerAddress = address.toLowerCase();
-  return PROMOTIONAL_SENDER_COMPANY_KEYWORDS.some((kw) => lowerAddress.includes(kw));
+  return containsAny(address.toLowerCase(), PROMOTIONAL_SENDER_COMPANY_KEYWORDS);
 }
 
 export interface SmsFilterDecision {
   shouldProcess: boolean;
-  reason?: 'phone-sender' | 'deny-keyword' | 'promotional-sender';
+  reason?: 'phone-sender' | 'hard-deny-keyword' | 'soft-deny-keyword' | 'promotional-sender';
 }
 
 export const SmsFilterService = {
@@ -89,11 +71,17 @@ export const SmsFilterService = {
     }
 
     const lowerBody = body.toLowerCase();
-    if (containsDenyKeyword(lowerBody)) {
-      return { shouldProcess: false, reason: 'deny-keyword' };
+    if (containsAny(lowerBody, HARD_DENY_KEYWORDS)) {
+      return { shouldProcess: false, reason: 'hard-deny-keyword' };
     }
 
-    if (isPromotionalCompanySender(address) && !hasStrongTransactionSignal(body)) {
+    const strongSignal = hasStrongTransactionSignal(body);
+
+    if (containsAny(lowerBody, SOFT_DENY_KEYWORDS) && !strongSignal) {
+      return { shouldProcess: false, reason: 'soft-deny-keyword' };
+    }
+
+    if (isPromotionalCompanySender(address) && !strongSignal) {
       return { shouldProcess: false, reason: 'promotional-sender' };
     }
 

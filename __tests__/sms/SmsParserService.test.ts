@@ -15,17 +15,19 @@ describe('SmsParserService', () => {
     expect(parsed?.bank).toBe('HDFC');
     expect(parsed?.accountLast4).toBe('9892');
     expect(parsed?.type).toBe('expense');
+    expect(parsed?.status).toBe('success');
     expect(parsed?.referenceNumber).toBe('864073759891');
   });
 
-  it('parses the classic "spent at X via debit card" phrasing', () => {
+  it('parses the classic "spent at X via debit card" phrasing, distinguishing the card digits from an account', () => {
     const text = 'Rs.350 spent at Swiggy via HDFC Bank Debit Card ending 4321 on 04-07-2026. Avail Bal: Rs 49,650.00';
     const parsed = SmsParserService.parse(text);
 
     expect(parsed).not.toBeNull();
     expect(parsed?.merchantRaw).toBe('Swiggy');
     expect(parsed?.amount).toBe(350);
-    expect(parsed?.accountLast4).toBe('4321');
+    expect(parsed?.cardLast4).toBe('4321');
+    expect(parsed?.accountLast4).toBeUndefined();
     expect(parsed?.paymentMethod).toBe('Debit Card');
     expect(parsed?.balanceAfter).toBe(49650);
   });
@@ -37,7 +39,7 @@ describe('SmsParserService', () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.amount).toBe(799);
     expect(parsed?.bank).toBe('ICICI');
-    expect(parsed?.accountLast4).toBe('3456');
+    expect(parsed?.cardLast4).toBe('3456');
     expect(parsed?.merchantRaw.toLowerCase()).toContain('amazon');
     expect(parsed?.type).toBe('expense');
   });
@@ -54,7 +56,7 @@ describe('SmsParserService', () => {
     expect(parsed?.balanceAfter).toBe(61200);
   });
 
-  it('parses an Axis Bank UPI debit with a VPA', () => {
+  it('parses an Axis Bank UPI debit with a VPA as the payee (not payer, since this is an expense)', () => {
     const text = 'Rs.250.00 debited from A/c no. XX5678 on 05-Jul-26 to VPA merchant@okaxis. UPI Ref 998877665544. -Axis Bank';
     const parsed = SmsParserService.parse(text);
 
@@ -63,6 +65,8 @@ describe('SmsParserService', () => {
     expect(parsed?.bank).toBe('AXIS');
     expect(parsed?.accountLast4).toBe('5678');
     expect(parsed?.upiId).toBe('merchant@okaxis');
+    expect(parsed?.payeeUpiId).toBe('merchant@okaxis');
+    expect(parsed?.payerUpiId).toBeUndefined();
     expect(parsed?.paymentMethod).toBe('UPI');
     expect(parsed?.referenceNumber).toBe('998877665544');
   });
@@ -88,7 +92,47 @@ describe('SmsParserService', () => {
     expect(parsed?.paymentMethod).toBe('Wallet');
   });
 
+  it('extracts a UTR number distinct from a generic reference number', () => {
+    const text = 'Rs.5,000.00 credited to your A/c XX1122 via NEFT. UTR: 123456789012. -HDFC Bank';
+    const parsed = SmsParserService.parse(text);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.paymentMethod).toBe('NEFT');
+    expect(parsed?.utrNumber).toBe('123456789012');
+  });
+
+  it('extracts the payer UPI id and mobile number for a received UPI credit', () => {
+    const text = 'Rs.150.00 received from 9876543210@ybl on 06-Jul-26 in your HDFC A/c XX9892. Ref 112233445566';
+    const parsed = SmsParserService.parse(text);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe('income');
+    expect(parsed?.payerUpiId).toBe('9876543210@ybl');
+    expect(parsed?.payeeUpiId).toBeUndefined();
+    expect(parsed?.mobileNumber).toBe('9876543210');
+  });
+
+  it('detects a failed transaction', () => {
+    const text = 'Your payment of Rs.500 to Amazon has failed. Amount will be reversed to your account. -ICICI Bank';
+    const parsed = SmsParserService.parse(text);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.status).toBe('failed');
+  });
+
+  it('detects a pending transaction', () => {
+    const text = 'Rs.1,000 debited for NEFT transfer, transaction is pending and will be credited to beneficiary shortly. -SBI';
+    const parsed = SmsParserService.parse(text);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.status).toBe('pending');
+  });
+
   it('returns null when there is no recognizable amount', () => {
     expect(SmsParserService.parse('Hey, are we still on for lunch tomorrow?')).toBeNull();
+  });
+
+  it('returns null for an amount-only balance-check message with no transaction verb', () => {
+    expect(SmsParserService.parse('Your account balance as of today is Rs.12,340.00. -HDFC Bank')).toBeNull();
   });
 });

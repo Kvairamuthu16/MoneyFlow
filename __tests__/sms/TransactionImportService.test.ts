@@ -1,6 +1,9 @@
+import { Platform, PermissionsAndroid } from 'react-native';
+import Contacts from 'react-native-contacts';
 import { initializeStorage, AppStorage } from '../../src/storage/mmkv';
 import { TransactionImportService } from '../../src/services/sms/TransactionImportService';
 import { LearningService } from '../../src/services/sms/LearningService';
+import { PartyLabelService } from '../../src/services/sms/PartyLabelService';
 import { RawSmsMessage } from '../../src/services/sms/types';
 
 function msg(overrides: Partial<RawSmsMessage>): RawSmsMessage {
@@ -8,9 +11,22 @@ function msg(overrides: Partial<RawSmsMessage>): RawSmsMessage {
 }
 
 describe('TransactionImportService', () => {
+  const originalOS = Platform.OS;
+
+  beforeAll(() => {
+    Platform.OS = 'android';
+  });
+
+  afterAll(() => {
+    Platform.OS = originalOS;
+  });
+
   beforeEach(async () => {
     await initializeStorage();
     AppStorage.clearAll();
+    jest.spyOn(PermissionsAndroid, 'check').mockResolvedValue(true);
+    (Contacts.getContactsByPhoneNumber as jest.Mock).mockReset().mockResolvedValue([]);
+    (Contacts.getContactsByEmailAddress as jest.Mock).mockReset().mockResolvedValue([]);
   });
 
   it('imports a genuine bank debit and fills in every field the pipeline is responsible for', async () => {
@@ -27,8 +43,43 @@ describe('TransactionImportService', () => {
     expect(tx.merchant).toBe('Swiggy');
     expect(tx.category).toBe('Food');
     expect(tx.amount).toBe(350);
-    expect(tx.accountLast4).toBe('4321');
+    expect(tx.cardLast4).toBe('4321');
+    expect(tx.accountLast4).toBeUndefined();
+    expect(tx.status).toBe('success');
     expect(tx.sourceSMSId).toBe('sms-1');
+  });
+
+  it('does not persist the raw SMS text unless the caller opts in', async () => {
+    const body = 'Rs.350 spent at Swiggy via HDFC Bank Debit Card ending 4321 on 04-07-2026.';
+
+    const defaultOutcome = await TransactionImportService.importMessages([msg({ id: 'sms-a', body })], [], new Set());
+    expect(defaultOutcome.newTransactions[0].sourceText).toBeUndefined();
+
+    const optedInOutcome = await TransactionImportService.importMessages([msg({ id: 'sms-b', body })], [], new Set(), undefined, {
+      storeRawSmsBody: true
+    });
+    expect(optedInOutcome.newTransactions[0].sourceText).toBe(body);
+  });
+
+  it('resolves a counterparty phone number to a device contact name', async () => {
+    (Contacts.getContactsByPhoneNumber as jest.Mock).mockResolvedValue([{ displayName: 'John Kumar' }]);
+
+    const messages = [msg({ id: 'sms-upi', body: 'Rs.150.00 received from 9876543210@ybl on 06-Jul-26 in your HDFC A/c XX9892. Ref 112233445566' })];
+    const outcome = await TransactionImportService.importMessages(messages, [], new Set());
+
+    expect(outcome.newTransactions[0].contactName).toBe('John Kumar');
+  });
+
+  it("prefers the user's own party label over an auto-resolved contact name", async () => {
+    (Contacts.getContactsByPhoneNumber as jest.Mock).mockResolvedValue([{ displayName: 'John Kumar' }]);
+    // Keyed by the extracted mobile number (not the full VPA) -- the same
+    // person may pay via several UPI handles that all resolve to one number.
+    PartyLabelService.setLabel('9876543210', 'Landlord');
+
+    const messages = [msg({ id: 'sms-upi', body: 'Rs.150.00 received from 9876543210@ybl on 06-Jul-26 in your HDFC A/c XX9892. Ref 112233445566' })];
+    const outcome = await TransactionImportService.importMessages(messages, [], new Set());
+
+    expect(outcome.newTransactions[0].contactName).toBe('Landlord');
   });
 
   it('filters out an OTP message without creating a transaction', async () => {

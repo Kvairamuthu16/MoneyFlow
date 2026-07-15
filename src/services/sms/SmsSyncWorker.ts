@@ -46,8 +46,9 @@ export const SmsSyncWorker = {
 
     const parsedIds = new Set(AppStorage.getParsedSMSIds());
     const existingTransactions = AppStorage.getTransactions();
+    const { storeRawSmsBody } = AppStorage.getSettings();
 
-    const outcome = await TransactionImportService.importMessages(messages, existingTransactions, parsedIds, onProgress);
+    const outcome = await TransactionImportService.importMessages(messages, existingTransactions, parsedIds, onProgress, { storeRawSmsBody });
 
     if (outcome.newTransactions.length > 0) {
       AppStorage.saveTransactions([...outcome.newTransactions, ...existingTransactions]);

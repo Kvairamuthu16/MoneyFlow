@@ -29,4 +29,21 @@ describe('DuplicateDetectionService', () => {
   it('returns false against an empty history', () => {
     expect(DuplicateDetectionService.isDuplicate(base, [])).toBe(false);
   });
+
+  it('flags an exact-text resend as a duplicate via the SMS hash, even with different compound-key fields', () => {
+    const smsBody = 'Rs.500 debited from A/c XX9892 towards Amazon. Ref 123456789012';
+    const original = { ...base, sourceText: smsBody };
+    // Simulates a second delivery of the identical SMS under a different
+    // message ID, where re-parsing happened to compute a different time.
+    const resend = { ...base, time: '14:31', sourceText: smsBody };
+
+    expect(DuplicateDetectionService.isDuplicate(resend, [original])).toBe(true);
+  });
+
+  it('does not flag two different transactions that merely lack sourceText', () => {
+    const a = { ...base, referenceNumber: undefined };
+    const b = { ...base, referenceNumber: undefined, date: '2026-07-11' };
+
+    expect(DuplicateDetectionService.isDuplicate(a, [b])).toBe(false);
+  });
 });

@@ -38,4 +38,23 @@ describe('SmsFilterService', () => {
     expect(SmsFilterService.shouldProcess('AD-AMAZON', 'Amazon: Your Prime membership renews soon.')).toBe(false);
     expect(SmsFilterService.shouldProcess('AD-AMAZON', 'Rs.1250 debited towards your Amazon Pay transaction on 10-Jul. Ref 998877665544')).toBe(true);
   });
+
+  // "cashback"/"subscription"/"insurance"/"reward points" are marketing
+  // buzzwords AND real transaction types (Cashback Credit, Subscription
+  // Renewal, Insurance Premium) -- soft-deny only rejects them absent real
+  // payment evidence, it must not reject the genuine transaction messages.
+  it('accepts a genuine cashback credit but rejects a cashback marketing offer', () => {
+    expect(SmsFilterService.shouldProcess('AD-HDFCBK', 'Rs.20 cashback credited to your account for your last transaction. -HDFC Bank')).toBe(true);
+    expect(SmsFilterService.shouldProcess('AD-HDFCBK', 'Get amazing cashback offers on every UPI payment this week!')).toBe(false);
+  });
+
+  it('accepts a genuine subscription renewal debit but rejects a subscribe-now promo', () => {
+    expect(SmsFilterService.shouldProcess('AD-HDFCBK', 'Rs.199 debited towards your subscription renewal. -HDFC Bank')).toBe(true);
+    expect(SmsFilterService.shouldProcess('AD-HDFCBK', 'Subscription plans starting at just Rs.99! Subscribe now.')).toBe(false);
+  });
+
+  it('accepts a genuine insurance premium debit but rejects an insurance sales pitch', () => {
+    expect(SmsFilterService.shouldProcess('AD-HDFCBK', 'Rs.5000 debited towards your HDFC Life insurance premium. -HDFC Bank')).toBe(true);
+    expect(SmsFilterService.shouldProcess('AD-HDFCBK', 'Get the best insurance plans for your family, enquire now!')).toBe(false);
+  });
 });

@@ -1,20 +1,30 @@
-import { PaymentMethod, TransactionType } from '../../types';
+import { PaymentMethod, TransactionStatus, TransactionType } from '../../types';
 import { TRANSACTION_AMOUNT_REGEX, TRANSACTION_VERB_REGEX } from './SmsFilterService';
+import bankSenderConfig from './config/bankSenderPatterns.json';
 
 export interface ParsedSmsFields {
   amount: number;
   currency: string;
   type: TransactionType;
+  status: TransactionStatus;
   paymentMethod: PaymentMethod;
   bank: string;
   accountLast4?: string;
+  cardLast4?: string;
+  utrNumber?: string;
   merchantRaw: string;
   receiverName?: string;
   senderName?: string;
   upiId?: string;
+  payerUpiId?: string;
+  payeeUpiId?: string;
+  mobileNumber?: string;
+  emailAddress?: string;
   referenceNumber?: string;
   balanceAfter?: number;
   confidenceScore: number;
+  /** True when the merchant could only be recovered via the loose heuristic fallback, not a structured pattern -- surfaced so callers can weight confidence/UI accordingly. */
+  usedFallbackParser: boolean;
 }
 
 const CURRENCY_BY_SYMBOL: Array<[RegExp, string]> = [
@@ -31,39 +41,15 @@ function detectCurrency(text: string): string {
   return 'INR';
 }
 
-const BANK_KEYWORDS = [
-  'hdfc',
-  'sbi',
-  'icici',
-  'axis',
-  'kotak',
-  'pnb',
-  'bob',
-  'canara',
-  'indian bank',
-  'iob',
-  'federal',
-  'idfc',
-  'indusind',
-  'yes bank',
-  'hsbc',
-  'citi',
-  'chase',
-  'wells fargo',
-  'revolut',
-  'razorpay',
-  'cashfree',
-  'stripe',
-  'paytm',
-  'phonepe',
-  'google pay',
-  'bhim'
-];
+// Bank/PSP name list lives in ./config/bankSenderPatterns.json -- add a new
+// bank by editing that file, no changes needed here. See
+// docs/sms-engine-extending.md.
+const BANKS: Array<{ name: string; keywords: string[] }> = bankSenderConfig.banks;
 
 function detectBank(lowerText: string, text: string): string {
-  for (const keyword of BANK_KEYWORDS) {
-    if (lowerText.includes(keyword)) {
-      return keyword.toUpperCase();
+  for (const bank of BANKS) {
+    if (bank.keywords.some((kw) => lowerText.includes(kw))) {
+      return bank.name;
     }
   }
   const shortCodeMatch = text.match(/^([A-Z]{2})-[A-Z]+/);
@@ -93,6 +79,17 @@ function detectPaymentMethod(lowerText: string): PaymentMethod {
   if (lowerText.includes('wallet') || lowerText.includes('paytm wallet') || lowerText.includes('amazon pay')) return 'Wallet';
   if (lowerText.includes('bank transfer')) return 'Bank Transfer';
   return 'Other';
+}
+
+const FAILED_KEYWORDS = ['failed', 'declined', 'unsuccessful', 'not successful'];
+const REVERSED_KEYWORDS = ['reversed', 'reversal'];
+const PENDING_KEYWORDS = ['pending', 'processing', 'will be credited', 'initiated'];
+
+function detectStatus(lowerText: string): TransactionStatus {
+  if (FAILED_KEYWORDS.some((kw) => lowerText.includes(kw))) return 'failed';
+  if (REVERSED_KEYWORDS.some((kw) => lowerText.includes(kw))) return 'reversed';
+  if (PENDING_KEYWORDS.some((kw) => lowerText.includes(kw))) return 'pending';
+  return 'success';
 }
 
 const MERCHANT_PATTERNS = [
@@ -135,19 +132,75 @@ const KNOWN_MERCHANT_HINTS: Array<[string, string]> = [
   ['jio', 'Jio Mobile Recharge']
 ];
 
-function fallbackMerchant(lowerText: string): string {
+function fallbackMerchant(lowerText: string): string | undefined {
   for (const [keyword, label] of KNOWN_MERCHANT_HINTS) {
     if (lowerText.includes(keyword)) return label;
   }
-  return 'Other Transaction';
+  return undefined;
+}
+
+// Last-resort heuristic when no structured pattern or known-merchant hint
+// matches: look for a proper-noun-like run of Title Case words. This is a
+// deterministic rule, not a cloud/ML model -- the app has no network access
+// or bundled ML runtime by design (100% offline), so "AI fallback parsing"
+// here means "looser rules", not a hosted AI call.
+const FALLBACK_STOPWORDS = new Set([
+  'bank',
+  'account',
+  'available',
+  'avail',
+  'balance',
+  'bal',
+  'ref',
+  'refno',
+  'upi',
+  'debit',
+  'credit',
+  'card',
+  'not',
+  'you',
+  'call',
+  'sms',
+  'block',
+  'txn',
+  'info',
+  'the',
+  'and',
+  'for',
+  'with',
+  'your',
+  'dear',
+  'customer'
+]);
+
+function looseFallbackMerchant(text: string): string | undefined {
+  const candidates = text.match(/\b[A-Z][a-zA-Z]{2,}(?:\s+[A-Z][a-zA-Z]{2,}){0,2}\b/g);
+  if (!candidates) return undefined;
+  for (const candidate of candidates) {
+    const words = candidate.split(/\s+/);
+    if (words.some((w) => FALLBACK_STOPWORDS.has(w.toLowerCase()))) continue;
+    if (candidate.length < 3 || candidate.length > 40) continue;
+    return candidate.trim();
+  }
+  return undefined;
 }
 
 const UPI_ID_REGEX = /\b[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}\b/;
-const ACCOUNT_LAST_DIGITS_REGEX = /(?:a\/?c(?:count)?(?:\s*no\.?)?|card(?:\s*no\.?)?)\s*(?:ending(?:\s*with)?)?\s*[:\-]?\s*[*xX]*(\d{3,6})\b/i;
+const EMAIL_REGEX = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/;
+const MOBILE_NUMBER_REGEX = /\b[6-9]\d{9}\b/;
+const ACCOUNT_LAST_DIGITS_REGEX = /a\/?c(?:count)?(?:\s*no\.?)?\s*[:\-]?\s*[*xX]*(\d{3,6})\b/i;
+const CARD_LAST_DIGITS_REGEX = /card(?:\s*no\.?)?\s*(?:ending(?:\s*with)?)?\s*[:\-]?\s*[*xX]*(\d{3,6})\b/i;
 const REFERENCE_NUMBER_REGEX = /(?:Ref|RefNo|UPI Ref|Txn ID|UPI:|Ref\.No\.)\s?([0-9]{8,12})/i;
+const UTR_REGEX = /UTR\s?(?:No\.?|Number)?\s?[:\-]?\s?([0-9]{9,18})/i;
 const BALANCE_REGEX = /(?:Bal|Balance|Avail Bal|Available Balance|is)[:\s]*(?:Rs\.?|INR|₹|\$)\s?([\d,]+(?:\.\d{2})?)/i;
 
-const INCOME_KEYWORDS = ['credited', 'deposited', 'refunded', 'received', 'interest credited', 'salary'];
+const INCOME_KEYWORDS = ['credited', 'deposited', 'refunded', 'received', 'interest credited', 'salary', 'cashback', 'reward'];
+
+function extractMobileFromUpi(upiId: string | undefined): string | undefined {
+  if (!upiId) return undefined;
+  const localPart = upiId.split('@')[0];
+  return /^[6-9]\d{9}$/.test(localPart) ? localPart : undefined;
+}
 
 /**
  * Pure regex extraction over already-filtered SMS text (see
@@ -161,8 +214,12 @@ export const SmsParserService = {
 
     // Requires both a currency amount AND a transaction verb -- a bank
     // message that only mentions an amount (e.g. a balance-check or EMI due
-    // reminder) is not itself a completed transaction.
-    if (!TRANSACTION_VERB_REGEX.test(text)) return null;
+    // reminder) is not itself a completed transaction. A failed/reversed/
+    // pending status is itself sufficient evidence this describes a
+    // transaction attempt, even when the message doesn't use one of the
+    // completion verbs (e.g. "payment of Rs.500 ... has failed").
+    const status = detectStatus(lowerText);
+    if (!TRANSACTION_VERB_REGEX.test(text) && status === 'success') return null;
 
     const amtMatch = text.match(TRANSACTION_AMOUNT_REGEX);
     if (!amtMatch) return null;
@@ -176,40 +233,69 @@ export const SmsParserService = {
     const acctMatch = text.match(ACCOUNT_LAST_DIGITS_REGEX);
     const accountLast4 = acctMatch ? acctMatch[1] : undefined;
 
+    const cardMatch = text.match(CARD_LAST_DIGITS_REGEX);
+    const cardLast4 = cardMatch ? cardMatch[1] : undefined;
+
     const upiMatch = text.match(UPI_ID_REGEX);
     const upiId = upiMatch ? upiMatch[0] : undefined;
+    const payerUpiId = type === 'income' ? upiId : undefined;
+    const payeeUpiId = type === 'expense' ? upiId : undefined;
+
+    const emailMatch = text.match(EMAIL_REGEX);
+    const emailAddress = emailMatch ? emailMatch[0] : undefined;
+
+    const mobileMatch = text.match(MOBILE_NUMBER_REGEX);
+    const mobileNumber = extractMobileFromUpi(upiId) || (mobileMatch ? mobileMatch[0] : undefined);
 
     const receiverCandidate = extractCandidate(text, MERCHANT_PATTERNS);
     const senderCandidate = extractCandidate(text, SENDER_PATTERNS);
-    const merchantRaw = receiverCandidate || senderCandidate || fallbackMerchant(lowerText);
+
+    let merchantRaw = receiverCandidate || senderCandidate || fallbackMerchant(lowerText);
+    let usedFallbackParser = false;
+    if (!merchantRaw) {
+      merchantRaw = looseFallbackMerchant(text) || 'Other Transaction';
+      usedFallbackParser = merchantRaw !== 'Other Transaction';
+    }
+
     const receiverName = type === 'expense' ? receiverCandidate : undefined;
     const senderName = type === 'income' ? senderCandidate : undefined;
 
     const refMatch = text.match(REFERENCE_NUMBER_REGEX);
     const referenceNumber = refMatch ? refMatch[1] : undefined;
 
+    const utrMatch = text.match(UTR_REGEX);
+    const utrNumber = utrMatch ? utrMatch[1] : undefined;
+
     const balMatch = text.match(BALANCE_REGEX);
     const balanceAfter = balMatch ? parseFloat(balMatch[1].replace(/,/g, '')) : undefined;
 
     let confidenceScore = 0.7;
-    if (merchantRaw !== 'Other Transaction') confidenceScore += 0.1;
-    if (referenceNumber) confidenceScore += 0.1;
+    if (merchantRaw !== 'Other Transaction') confidenceScore += usedFallbackParser ? 0.05 : 0.1;
+    if (referenceNumber || utrNumber) confidenceScore += 0.1;
     if (balanceAfter) confidenceScore += 0.1;
 
     return {
       amount,
       currency,
       type,
+      status,
       paymentMethod,
       bank,
       accountLast4,
+      cardLast4,
+      utrNumber,
       merchantRaw,
       receiverName,
       senderName,
       upiId,
+      payerUpiId,
+      payeeUpiId,
+      mobileNumber,
+      emailAddress,
       referenceNumber,
       balanceAfter,
-      confidenceScore: Math.min(confidenceScore, 1.0)
+      confidenceScore: Math.min(confidenceScore, 1.0),
+      usedFallbackParser
     };
   }
 };

@@ -1,0 +1,58 @@
+{
+  "hardDenyKeywords": [
+    "otp",
+    "one time password",
+    "verification code",
+    "login code",
+    "password",
+    "authentication",
+    "kyc reminder",
+    "offer",
+    "coupon",
+    "sale",
+    "discount",
+    "loan offer",
+    "credit card offer",
+    "delivery",
+    "courier",
+    "tracking",
+    "ticket",
+    "booking",
+    "promotion",
+    "advertisement",
+    "spam",
+    "pre-approved",
+    "scratch card",
+    "win cash",
+    "invest now to earn"
+  ],
+  "softDenyKeywords": [
+    "cashback",
+    "subscription",
+    "reward points",
+    "insurance"
+  ],
+  "transactionVerbs": [
+    "spent",
+    "debited",
+    "charged",
+    "withdrawn",
+    "credited",
+    "deposited",
+    "sent",
+    "received",
+    "txn",
+    "payment to",
+    "transferred",
+    "transfer of",
+    "paid to",
+    "added to"
+  ],
+  "promotionalSenderCompanies": [
+    "amazon",
+    "flipkart",
+    "myntra",
+    "swiggy",
+    "zomato"
+  ]
+}

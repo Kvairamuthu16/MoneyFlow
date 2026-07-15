@@ -7,5 +7,7 @@ export * from './LearningService';
 export * from './DuplicateDetectionService';
 export * from './SmsPermissionService';
 export * from './SmsReaderService';
+export * from './ContactResolverService';
+export * from './PartyLabelService';
 export * from './TransactionImportService';
 export * from './SmsSyncWorker';

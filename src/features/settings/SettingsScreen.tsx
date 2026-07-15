@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Switch, Alert, Share, Modal, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { User, Moon, Sun, Monitor, Coins, Database, FileSpreadsheet, Sparkles, Lock, Upload } from 'lucide-react-native';
+import { User, Moon, Sun, Monitor, Coins, Database, FileSpreadsheet, Sparkles, Lock, Upload, Users, FileText } from 'lucide-react-native';
 import { useAppData } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { AppSettings } from '../../types';
 import { LockScreen } from '../lock/LockScreen';
+import { ContactResolverService } from '../../services/sms';
 
 const THEME_OPTIONS: { value: AppSettings['theme']; label: string; icon: (color: string) => React.ReactNode }[] = [
   { value: 'light', label: 'Light', icon: (c) => <Sun size={14} color={c} /> },
@@ -36,6 +37,22 @@ export default function SettingsScreen() {
     } else {
       updateSettings({ biometricLockEnabled: false });
     }
+  };
+
+  const handleContactsToggle = async (value: boolean) => {
+    if (!value) {
+      updateSettings({ contactsPermissionGranted: false });
+      return;
+    }
+    const granted = await ContactResolverService.requestPermission();
+    updateSettings({ contactsPermissionGranted: granted });
+    if (!granted) {
+      Alert.alert('Permission Denied', 'Contact name resolution will stay off until you grant contacts access.');
+    }
+  };
+
+  const handleRawSmsToggle = (value: boolean) => {
+    updateSettings({ storeRawSmsBody: value });
   };
 
   const handleReset = () => {
@@ -204,6 +221,40 @@ export default function SettingsScreen() {
               <Switch
                 value={settings.biometricLockEnabled}
                 onValueChange={handleBiometricToggle}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ padding: 8, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12 }}>
+                  <Users size={16} color={theme.colors.accent} />
+                </View>
+                <View>
+                  <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>Resolve Contact Names</Text>
+                  <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>Show "John Kumar" instead of a UPI ID/number</Text>
+                </View>
+              </View>
+              <Switch
+                value={settings.contactsPermissionGranted}
+                onValueChange={handleContactsToggle}
+                trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ padding: 8, backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12 }}>
+                  <FileText size={16} color={theme.colors.accent} />
+                </View>
+                <View>
+                  <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>Store Raw SMS Text</Text>
+                  <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>Off by default -- only structured fields are kept</Text>
+                </View>
+              </View>
+              <Switch
+                value={settings.storeRawSmsBody}
+                onValueChange={handleRawSmsToggle}
                 trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
               />
             </View>

@@ -1,21 +1,40 @@
 import { Transaction } from '../../types';
 
-type DedupFields = Pick<Transaction, 'amount' | 'bank' | 'referenceNumber' | 'date' | 'time' | 'accountLast4'>;
+type DedupFields = Pick<Transaction, 'amount' | 'bank' | 'referenceNumber' | 'date' | 'time' | 'accountLast4' | 'sourceText'>;
 
 /**
  * The primary duplicate guard is the SMS message ID cache (see
  * TransactionImportService), which is cheap and exact. This is a second,
- * content-based guard for the case where the *same* real-world transaction
- * arrives as two distinct messages (e.g. both the bank's own SMS and a UPI
- * app's confirmation SMS for one payment).
+ * content-based guard for two cases the ID cache can't catch:
+ *  - the *same* real-world transaction arriving as two distinct messages
+ *    (e.g. both the bank's own SMS and a UPI app's confirmation SMS), caught
+ *    by the compound field key below;
+ *  - the exact same SMS being delivered twice under two different message
+ *    IDs (dual-SIM duplicate delivery, a bank resending), caught by the raw
+ *    text hash when both messages' text was retained.
  */
 function buildKey(tx: DedupFields): string {
   return [tx.amount, tx.bank, tx.referenceNumber ?? '', tx.date, tx.time ?? '', tx.accountLast4 ?? ''].join('|');
 }
 
+/** Cheap non-cryptographic hash (djb2-ish) -- only used to short-circuit an exact-text comparison, not for security. */
+function hashText(text: string): number {
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 33 + text.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
 export const DuplicateDetectionService = {
   isDuplicate(candidate: DedupFields, existing: DedupFields[]): boolean {
     const key = buildKey(candidate);
-    return existing.some((tx) => buildKey(tx) === key);
+    const candidateHash = candidate.sourceText ? hashText(candidate.sourceText) : undefined;
+
+    return existing.some((tx) => {
+      if (buildKey(tx) === key) return true;
+      if (candidateHash !== undefined && tx.sourceText && hashText(tx.sourceText) === candidateHash) return true;
+      return false;
+    });
   }
 };

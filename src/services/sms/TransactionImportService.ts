@@ -5,6 +5,8 @@ import { SmsParserService } from './SmsParserService';
 import { MerchantNormalizationService } from './MerchantNormalizationService';
 import { CategoryEngine } from './CategoryEngine';
 import { DuplicateDetectionService } from './DuplicateDetectionService';
+import { ContactResolverService } from './ContactResolverService';
+import { PartyLabelService } from './PartyLabelService';
 
 const BATCH_SIZE = 25;
 
@@ -28,18 +30,25 @@ export interface ImportOutcome {
   failed: number;
 }
 
+export interface ImportOptions {
+  /** Privacy: full SMS text is only persisted when the user has explicitly opted in. Defaults to false. */
+  storeRawSmsBody?: boolean;
+}
+
 /**
  * Orchestrates the full pipeline for a batch of raw SMS: filter -> parse ->
- * normalize merchant -> categorize -> de-duplicate -> build Transaction.
- * Deliberately holds no storage or native-module dependency itself, so it's
- * trivially unit-testable -- callers (SmsSyncWorker) own persistence.
+ * normalize merchant -> resolve contact -> categorize -> de-duplicate ->
+ * build Transaction. Deliberately holds no storage dependency itself beyond
+ * the optional contacts lookup, so it's trivially unit-testable -- callers
+ * (SmsSyncWorker) own persistence.
  */
 export const TransactionImportService = {
   async importMessages(
     messages: RawSmsMessage[],
     existingTransactions: Transaction[],
     alreadyParsedIds: ReadonlySet<string>,
-    onProgress?: (progress: ImportProgress) => void
+    onProgress?: (progress: ImportProgress) => void,
+    options: ImportOptions = {}
   ): Promise<ImportOutcome> {
     const newTransactions: Transaction[] = [];
     const newlyParsedIds: string[] = [];
@@ -65,6 +74,7 @@ export const TransactionImportService = {
               const merchant = MerchantNormalizationService.normalize(parsed.merchantRaw);
               const category = CategoryEngine.categorize(merchant, msg.body);
               const { date, time } = formatDateTime(msg.date);
+              const contactName = await resolveContactName(parsed.mobileNumber, parsed.emailAddress, parsed.upiId);
 
               const candidate: Transaction = {
                 id: `sms-parsed-${msg.id}-${msg.date}`,
@@ -73,19 +83,27 @@ export const TransactionImportService = {
                 merchant,
                 receiverName: parsed.receiverName,
                 senderName: parsed.senderName,
+                contactName,
                 upiId: parsed.upiId,
+                payerUpiId: parsed.payerUpiId,
+                payeeUpiId: parsed.payeeUpiId,
+                mobileNumber: parsed.mobileNumber,
+                emailAddress: parsed.emailAddress,
                 bank: parsed.bank,
                 accountLast4: parsed.accountLast4,
+                cardLast4: parsed.cardLast4,
+                utrNumber: parsed.utrNumber,
                 date,
                 time,
                 type: parsed.type,
+                status: parsed.status,
                 paymentMethod: parsed.paymentMethod,
                 category,
                 balanceAfter: parsed.balanceAfter,
                 referenceNumber: parsed.referenceNumber,
                 confidenceScore: parsed.confidenceScore,
                 sourceSMSId: msg.id,
-                sourceText: msg.body
+                sourceText: options.storeRawSmsBody ? msg.body : undefined
               };
 
               if (DuplicateDetectionService.isDuplicate(candidate, dedupPool)) {
@@ -118,3 +136,19 @@ export const TransactionImportService = {
     return { newTransactions, newlyParsedIds, skippedDuplicates, skippedFiltered, failed };
   }
 };
+
+/**
+ * A user's own rename (PartyLabelService) always wins over an auto-resolved
+ * device-contact name -- same "explicit correction beats inference" pattern
+ * as CategoryEngine/LearningService. Falls back to undefined (raw UPI
+ * ID/number shown in the UI) when neither is available.
+ */
+async function resolveContactName(mobileNumber?: string, emailAddress?: string, upiId?: string): Promise<string | undefined> {
+  const partyId = mobileNumber || emailAddress || upiId;
+  if (!partyId) return undefined;
+
+  const manualLabel = PartyLabelService.getLabel(partyId);
+  if (manualLabel) return manualLabel;
+
+  return ContactResolverService.resolve({ mobileNumber, emailAddress });
+}

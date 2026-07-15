@@ -36,6 +36,7 @@ export const StorageKeys = {
   PARSED_SMS_IDS: 'moneyflow_parsed_sms_ids',
   ONBOARDED: 'moneyflow_onboarded',
   MERCHANT_CATEGORY_OVERRIDES: 'moneyflow_merchant_category_overrides',
+  PARTY_LABEL_OVERRIDES: 'moneyflow_party_label_overrides',
   LAST_SYNCED_AT: 'moneyflow_last_synced_at'
 };
 
@@ -44,7 +45,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: 'INR',
   smsPermissionGranted: false,
   selectedMonth: currentYearMonth(),
-  biometricLockEnabled: false
+  biometricLockEnabled: false,
+  contactsPermissionGranted: false,
+  storeRawSmsBody: false
 };
 
 // A starter set of budget categories so the Budgets screen isn't empty on
@@ -152,6 +155,16 @@ export const AppStorage = {
   },
   saveMerchantOverrides: (overrides: Record<string, string>): void => {
     safeSet(StorageKeys.MERCHANT_CATEGORY_OVERRIDES, overrides);
+  },
+
+  // User-chosen display labels for a counterparty (phone number/UPI ID),
+  // independent of both device contacts and any resolved contact name --
+  // lets the user rename a party without touching their address book.
+  getPartyLabelOverrides: (): Record<string, string> => {
+    return safeGet<Record<string, string>>(StorageKeys.PARTY_LABEL_OVERRIDES, {});
+  },
+  savePartyLabelOverrides: (overrides: Record<string, string>): void => {
+    safeSet(StorageKeys.PARTY_LABEL_OVERRIDES, overrides);
   },
 
   // Cursor for incremental SMS sync -- lets a broad "all time" refresh skip

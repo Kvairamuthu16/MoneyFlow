@@ -26,6 +26,16 @@ describe('DuplicateDetectionService', () => {
     expect(DuplicateDetectionService.isDuplicate(base, [{ ...base, accountLast4: '4521' }])).toBe(false);
   });
 
+  it('flags a duplicate even when the two messages masked a different number of account digits', () => {
+    // e.g. the bank's own SMS says "A/C *9892" while a UPI app's confirmation for
+    // the same transaction says "a/c XX892" -- same account, different mask length.
+    expect(DuplicateDetectionService.isDuplicate(base, [{ ...base, accountLast4: '892' }])).toBe(true);
+  });
+
+  it('is case-insensitive on bank name when comparing accounts', () => {
+    expect(DuplicateDetectionService.isDuplicate({ ...base, bank: 'hdfc' }, [{ ...base, bank: 'HDFC' }])).toBe(true);
+  });
+
   it('returns false against an empty history', () => {
     expect(DuplicateDetectionService.isDuplicate(base, [])).toBe(false);
   });

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Animated as RNAnimated } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -10,18 +10,13 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Trash2,
-  Edit3,
-  ArrowUpDown,
   X
 } from 'lucide-react-native';
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Chip } from '../../components/Chip';
-import { ALL_CATEGORIES, LearningService } from '../../services/sms';
-import { getAccountLabel } from '../../services/accountLabel';
+import { getAccountLabel, getAccountKey, collectDistinctAccounts } from '../../services/accountLabel';
 import { Transaction } from '../../types';
-
-const RECATEGORIZE_OPTIONS: string[] = [...ALL_CATEGORIES];
 
 type ListRow = { kind: 'header'; label: string } | { kind: 'tx'; tx: Transaction };
 
@@ -37,23 +32,23 @@ function dateGroupLabel(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-export default function TransactionsScreen({ route }: any) {
+export default function TransactionsScreen({ navigation, route }: any) {
   const theme = useTheme();
   const { format } = useCurrency();
-  const { transactions, deleteTransaction, updateTransaction } = useAppData();
+  const { transactions, deleteTransaction } = useAppData();
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'highest' | 'lowest'>('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedAccount, setSelectedAccount] = useState(route?.params?.accountFilter || 'All');
+  const [selectedAccountKey, setSelectedAccountKey] = useState(route?.params?.accountFilter || 'All');
 
   // Coming from Dashboard's "jump to this account" tap re-applies the filter
   // even if this tab was already mounted (tab navigators don't remount on
   // re-navigation, so a state initializer alone wouldn't catch that case).
   useEffect(() => {
     if (route?.params?.accountFilter) {
-      setSelectedAccount(route.params.accountFilter);
+      setSelectedAccountKey(route.params.accountFilter);
       setShowFilters(true);
     }
   }, [route?.params?.accountFilter]);
@@ -65,9 +60,12 @@ export default function TransactionsScreen({ route }: any) {
 
   // Accounts are derived automatically from parsed SMS (bank + masked last
   // digits) -- there's no separate manually-managed "accounts" entity yet.
-  const accounts = useMemo(() => {
-    const list = new Set(transactions.map((t) => getAccountLabel(t.bank, t.accountLast4)));
-    return ['All', ...Array.from(list)];
+  // Grouped by getAccountKey (bank + last 3 digits) rather than the raw
+  // label, so the same real account isn't fragmented into two filter chips
+  // just because two SMS masked a different number of trailing digits.
+  const accountOptions = useMemo(() => {
+    const distinct = collectDistinctAccounts(transactions);
+    return [{ key: 'All', label: 'All' }, ...distinct];
   }, [transactions]);
 
   const processedTransactions = useMemo(() => {
@@ -92,8 +90,8 @@ export default function TransactionsScreen({ route }: any) {
       result = result.filter((t) => t.category === selectedCategory);
     }
 
-    if (selectedAccount !== 'All') {
-      result = result.filter((t) => getAccountLabel(t.bank, t.accountLast4) === selectedAccount);
+    if (selectedAccountKey !== 'All') {
+      result = result.filter((t) => getAccountKey(t.bank, t.accountLast4) === selectedAccountKey);
     }
 
     result.sort((a, b) => {
@@ -107,7 +105,7 @@ export default function TransactionsScreen({ route }: any) {
     });
 
     return result;
-  }, [transactions, searchQuery, typeFilter, selectedCategory, selectedAccount, sortBy]);
+  }, [transactions, searchQuery, typeFilter, selectedCategory, selectedAccountKey, sortBy]);
 
   const summary = useMemo(() => {
     let income = 0;
@@ -138,46 +136,29 @@ export default function TransactionsScreen({ route }: any) {
   }, [processedTransactions, sortBy]);
 
   const hasActiveFilters =
-    searchQuery.trim() !== '' || typeFilter !== 'all' || selectedCategory !== 'All' || selectedAccount !== 'All' || sortBy !== 'newest';
+    searchQuery.trim() !== '' || typeFilter !== 'all' || selectedCategory !== 'All' || selectedAccountKey !== 'All' || sortBy !== 'newest';
 
   const resetFilters = () => {
     setSearchQuery('');
     setTypeFilter('all');
     setSelectedCategory('All');
-    setSelectedAccount('All');
+    setSelectedAccountKey('All');
     setSortBy('newest');
   };
 
-  const handleCategoryChange = (id: string, currentCategory: string, merchant: string) => {
-    const curIdx = RECATEGORIZE_OPTIONS.indexOf(currentCategory);
-    const nextCat = RECATEGORIZE_OPTIONS[(curIdx + 1) % RECATEGORIZE_OPTIONS.length];
-    updateTransaction(id, { category: nextCat });
-    // Remember this merchant -> category correction so future SMS from the
-    // same merchant are auto-categorized this way (see LearningService).
-    LearningService.recordCorrection(merchant, nextCat);
-  };
-
-  const renderRightActions = (
-    _progress: RNAnimated.AnimatedInterpolation<number>,
-    _drag: RNAnimated.AnimatedInterpolation<number>,
-    swipeable: Swipeable,
-    tx: Transaction
-  ) => {
+  const renderRightActions = (tx: Transaction) => {
     return (
-      <View style={{ flexDirection: 'row', marginBottom: 10 }}>
-        <TouchableOpacity
-          onPress={() => {
-            handleCategoryChange(tx.id, tx.category, tx.merchant);
-            swipeable.close();
-          }}
-          style={{ width: 64, backgroundColor: theme.colors.accent, alignItems: 'center', justifyContent: 'center' }}
-        >
-          <Edit3 size={18} color="#fff" />
-          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 4 }}>Edit</Text>
-        </TouchableOpacity>
+      <View style={{ marginBottom: 10 }}>
         <TouchableOpacity
           onPress={() => deleteTransaction(tx.id)}
-          style={{ width: 64, backgroundColor: theme.colors.danger, alignItems: 'center', justifyContent: 'center', borderTopRightRadius: 16, borderBottomRightRadius: 16 }}
+          style={{
+            width: 72,
+            height: '100%',
+            backgroundColor: theme.colors.danger,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 16
+          }}
         >
           <Trash2 size={18} color="#fff" />
           <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 4 }}>Delete</Text>
@@ -198,8 +179,10 @@ export default function TransactionsScreen({ route }: any) {
     const tx = item.tx;
     return (
       <Animated.View entering={FadeIn} style={{ marginHorizontal: 24, marginBottom: 10 }}>
-        <Swipeable renderRightActions={(p, d, s) => renderRightActions(p, d, s as unknown as Swipeable, tx)} overshootRight={false}>
-          <View
+        <Swipeable renderRightActions={() => renderRightActions(tx)} overshootRight={false}>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => navigation.navigate('TransactionDetail', { transactionId: tx.id })}
             style={{
               backgroundColor: theme.colors.surface,
               borderWidth: 1,
@@ -246,7 +229,7 @@ export default function TransactionsScreen({ route }: any) {
               </Text>
               <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 }}>{tx.date}</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         </Swipeable>
       </Animated.View>
     );
@@ -328,12 +311,12 @@ export default function TransactionsScreen({ route }: any) {
             </View>
           </View>
 
-          {accounts.length > 2 && (
+          {accountOptions.length > 2 && (
             <View>
               <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 8 }}>Account</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {accounts.map((acc) => (
-                  <Chip key={acc} label={acc} selected={selectedAccount === acc} onPress={() => setSelectedAccount(acc)} />
+                {accountOptions.map((acc) => (
+                  <Chip key={acc.key} label={acc.label} selected={selectedAccountKey === acc.key} onPress={() => setSelectedAccountKey(acc.key)} />
                 ))}
               </View>
             </View>

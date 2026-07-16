@@ -1,4 +1,5 @@
 import { Transaction } from '../../types';
+import { getAccountKey } from '../accountLabel';
 
 type DedupFields = Pick<Transaction, 'amount' | 'bank' | 'referenceNumber' | 'date' | 'time' | 'accountLast4' | 'sourceText'>;
 
@@ -8,13 +9,16 @@ type DedupFields = Pick<Transaction, 'amount' | 'bank' | 'referenceNumber' | 'da
  * content-based guard for two cases the ID cache can't catch:
  *  - the *same* real-world transaction arriving as two distinct messages
  *    (e.g. both the bank's own SMS and a UPI app's confirmation SMS), caught
- *    by the compound field key below;
+ *    by the compound field key below. The account is compared via
+ *    getAccountKey (bank + last 3 digits), not the raw accountLast4 string,
+ *    because the two messages can mask a different number of trailing
+ *    digits for the very same account (e.g. "A/C *9892" vs "a/c XX892");
  *  - the exact same SMS being delivered twice under two different message
  *    IDs (dual-SIM duplicate delivery, a bank resending), caught by the raw
  *    text hash when both messages' text was retained.
  */
 function buildKey(tx: DedupFields): string {
-  return [tx.amount, tx.bank, tx.referenceNumber ?? '', tx.date, tx.time ?? '', tx.accountLast4 ?? ''].join('|');
+  return [tx.amount, getAccountKey(tx.bank, tx.accountLast4), tx.referenceNumber ?? '', tx.date, tx.time ?? ''].join('|');
 }
 
 /** Cheap non-cryptographic hash (djb2-ish) -- only used to short-circuit an exact-text comparison, not for security. */

@@ -217,7 +217,7 @@ export default function DashboardScreen({ navigation }: any) {
               {accountSummaries.map((account) => (
                 <TouchableOpacity
                   key={account.label}
-                  onPress={() => navigation.navigate('Transactions', { accountFilter: account.label })}
+                  onPress={() => navigation.navigate('Transactions', { screen: 'TransactionsList', params: { accountFilter: account.key } })}
                   activeOpacity={0.75}
                 >
                   <Card style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -229,15 +229,18 @@ export default function DashboardScreen({ navigation }: any) {
                         <Text style={{ color: theme.colors.danger }}>-{format(account.monthExpense)}</Text>
                       </Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      {account.latestBalance !== undefined ? (
-                        <>
-                          <Text style={{ color: theme.colors.textPrimary, fontSize: 14, fontWeight: '800' }}>{format(account.latestBalance)}</Text>
-                          <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '600', marginTop: 2 }}>as of {account.lastActivityDate}</Text>
-                        </>
-                      ) : (
-                        <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600' }}>Balance unknown</Text>
-                      )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        {account.latestBalance !== undefined ? (
+                          <>
+                            <Text style={{ color: theme.colors.textPrimary, fontSize: 14, fontWeight: '800' }}>{format(account.latestBalance)}</Text>
+                            <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '600', marginTop: 2 }}>as of {account.lastActivityDate}</Text>
+                          </>
+                        ) : (
+                          <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600' }}>Balance unknown</Text>
+                        )}
+                      </View>
+                      <ChevronRight size={16} color={theme.colors.textMuted} />
                     </View>
                   </Card>
                 </TouchableOpacity>

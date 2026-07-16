@@ -16,14 +16,15 @@ import { AppDataProvider } from './src/context/AppDataContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AppGate } from './src/features/lock/AppGate';
 import DashboardScreen from './src/features/dashboard/DashboardScreen';
-import TransactionsScreen from './src/features/transactions/TransactionsScreen';
+import TransactionsStack, { TransactionsStackParamList } from './src/features/transactions/TransactionsStack';
 import BudgetsScreen from './src/features/budgets/BudgetsScreen';
 import AnalyticsScreen from './src/features/analytics/AnalyticsScreen';
 import SettingsScreen from './src/features/settings/SettingsScreen';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type RootTabParamList = {
   Dashboard: undefined;
-  Transactions: { accountFilter?: string } | undefined;
+  Transactions: NavigatorScreenParams<TransactionsStackParamList> | undefined;
   Budgets: undefined;
   Analytics: undefined;
   Settings: undefined;
@@ -55,7 +56,7 @@ function AppNavigator() {
           />
           <Tab.Screen
             name="Transactions"
-            component={TransactionsScreen}
+            component={TransactionsStack}
             options={{
               tabBarIcon: ({ color, size }) => <Receipt color={color} size={size} />,
             }}

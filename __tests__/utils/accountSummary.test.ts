@@ -32,6 +32,7 @@ describe('computeAccountSummaries', () => {
 
     expect(summaries).toHaveLength(2);
     expect(summaries.map((s) => s.label).sort()).toEqual(['HDFC ••9892', 'ICICI ••4433']);
+    expect(summaries.every((s) => typeof s.key === 'string' && s.key.length > 0)).toBe(true);
   });
 
   it('treats two accounts at the same bank as distinct', () => {
@@ -44,6 +45,21 @@ describe('computeAccountSummaries', () => {
     );
 
     expect(summaries).toHaveLength(2);
+  });
+
+  it('collapses a 3-digit mask and a 4-digit mask of the same account instead of fragmenting it', () => {
+    const summaries = computeAccountSummaries(
+      [
+        tx({ id: 'a', bank: 'HDFC', accountLast4: '892', amount: 100, type: 'expense' }),
+        tx({ id: 'b', bank: 'HDFC', accountLast4: '9892', amount: 200, type: 'expense' })
+      ],
+      '2026-07'
+    );
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].label).toBe('HDFC ••9892');
+    expect(summaries[0].transactionCount).toBe(2);
+    expect(summaries[0].monthExpense).toBe(300);
   });
 
   it('reports the chronologically latest balance, not the last one in input order', () => {

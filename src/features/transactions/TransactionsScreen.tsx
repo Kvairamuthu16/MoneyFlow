@@ -15,7 +15,7 @@ import {
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Chip } from '../../components/Chip';
-import { getAccountLabel, getAccountKey, collectDistinctAccounts } from '../../services/accountLabel';
+import { getAccountLabel, isSameAccount, collectDistinctAccounts } from '../../services/accountLabel';
 import { Transaction } from '../../types';
 
 type ListRow = { kind: 'header'; label: string } | { kind: 'tx'; tx: Transaction };
@@ -60,13 +60,18 @@ export default function TransactionsScreen({ navigation, route }: any) {
 
   // Accounts are derived automatically from parsed SMS (bank + masked last
   // digits) -- there's no separate manually-managed "accounts" entity yet.
-  // Grouped by getAccountKey (bank + last 3 digits) rather than the raw
-  // label, so the same real account isn't fragmented into two filter chips
-  // just because two SMS masked a different number of trailing digits.
+  // Grouped via isSameAccount rather than the raw label, so the same real
+  // account isn't fragmented into two filter chips just because two SMS
+  // masked a different number of trailing digits.
   const accountOptions = useMemo(() => {
     const distinct = collectDistinctAccounts(transactions);
-    return [{ key: 'All', label: 'All' }, ...distinct];
+    return [{ key: 'All', label: 'All', bank: '', accountLast4: undefined as string | undefined }, ...distinct];
   }, [transactions]);
+
+  const selectedAccountOption = useMemo(
+    () => (selectedAccountKey === 'All' ? undefined : accountOptions.find((a) => a.key === selectedAccountKey)),
+    [accountOptions, selectedAccountKey]
+  );
 
   const processedTransactions = useMemo(() => {
     let result = [...transactions];
@@ -90,8 +95,8 @@ export default function TransactionsScreen({ navigation, route }: any) {
       result = result.filter((t) => t.category === selectedCategory);
     }
 
-    if (selectedAccountKey !== 'All') {
-      result = result.filter((t) => getAccountKey(t.bank, t.accountLast4) === selectedAccountKey);
+    if (selectedAccountOption) {
+      result = result.filter((t) => isSameAccount(t.bank, t.accountLast4, selectedAccountOption.bank, selectedAccountOption.accountLast4));
     }
 
     result.sort((a, b) => {
@@ -105,7 +110,7 @@ export default function TransactionsScreen({ navigation, route }: any) {
     });
 
     return result;
-  }, [transactions, searchQuery, typeFilter, selectedCategory, selectedAccountKey, sortBy]);
+  }, [transactions, searchQuery, typeFilter, selectedCategory, selectedAccountOption, sortBy]);
 
   const summary = useMemo(() => {
     let income = 0;

@@ -36,6 +36,14 @@ describe('DuplicateDetectionService', () => {
     expect(DuplicateDetectionService.isDuplicate({ ...base, bank: 'hdfc' }, [{ ...base, bank: 'HDFC' }])).toBe(true);
   });
 
+  // Regression: two different real accounts of the same digit length that
+  // merely share trailing digits (e.g. "9892" and "1892", both ending
+  // "892") must never be treated as a duplicate -- that would silently
+  // drop a genuine transaction from the second account.
+  it('does not flag a transaction from a different same-length account that happens to share trailing digits', () => {
+    expect(DuplicateDetectionService.isDuplicate(base, [{ ...base, accountLast4: '1892' }])).toBe(false);
+  });
+
   it('returns false against an empty history', () => {
     expect(DuplicateDetectionService.isDuplicate(base, [])).toBe(false);
   });

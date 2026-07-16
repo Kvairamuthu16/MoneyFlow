@@ -62,6 +62,23 @@ describe('computeAccountSummaries', () => {
     expect(summaries[0].monthExpense).toBe(300);
   });
 
+  // Regression: two real, distinct accounts of the same digit length that
+  // merely share trailing digits (e.g. "1234" and "5234", both ending
+  // "234") must stay separate -- collapsing these would silently merge two
+  // unrelated accounts' balances and transaction history.
+  it('keeps two different same-length accounts at the same bank separate even if they share trailing digits', () => {
+    const summaries = computeAccountSummaries(
+      [
+        tx({ id: 'a', bank: 'HDFC', accountLast4: '1234', amount: 100, type: 'expense' }),
+        tx({ id: 'b', bank: 'HDFC', accountLast4: '5234', amount: 200, type: 'expense' })
+      ],
+      '2026-07'
+    );
+
+    expect(summaries).toHaveLength(2);
+    expect(summaries.map((s) => s.label).sort()).toEqual(['HDFC ••1234', 'HDFC ••5234']);
+  });
+
   it('reports the chronologically latest balance, not the last one in input order', () => {
     const summaries = computeAccountSummaries(
       [

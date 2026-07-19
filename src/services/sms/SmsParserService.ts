@@ -46,12 +46,30 @@ function detectCurrency(text: string): string {
 // docs/sms-engine-extending.md.
 const BANKS: Array<{ name: string; keywords: string[] }> = bankSenderConfig.banks;
 
-function detectBank(lowerText: string, text: string): string {
+function compact(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function detectBank(lowerText: string, text: string, address?: string): string {
   for (const bank of BANKS) {
     if (bank.keywords.some((kw) => lowerText.includes(kw))) {
       return bank.name;
     }
   }
+
+  // Many real bank SMS templates never spell the bank's name out in the
+  // body at all -- they rely on the sender ID (e.g. "VM-HDFCBK") to tell
+  // the user who sent it. Fall back to matching the same keyword list
+  // against the sender address before giving up.
+  if (address) {
+    const compactAddress = compact(address);
+    for (const bank of BANKS) {
+      if (bank.keywords.some((kw) => compactAddress.includes(compact(kw)))) {
+        return bank.name;
+      }
+    }
+  }
+
   const shortCodeMatch = text.match(/^([A-Z]{2})-[A-Z]+/);
   if (shortCodeMatch) {
     return shortCodeMatch[1];
@@ -209,7 +227,7 @@ function extractMobileFromUpi(upiId: string | undefined): string | undefined {
  * CategoryEngine's jobs, so each concern stays independently testable.
  */
 export const SmsParserService = {
-  parse(text: string): ParsedSmsFields | null {
+  parse(text: string, address?: string): ParsedSmsFields | null {
     const lowerText = text.toLowerCase();
 
     // Requires both a currency amount AND a transaction verb -- a bank
@@ -228,7 +246,7 @@ export const SmsParserService = {
     const type: TransactionType = INCOME_KEYWORDS.some((kw) => lowerText.includes(kw)) ? 'income' : 'expense';
     const currency = detectCurrency(text);
     const paymentMethod = detectPaymentMethod(lowerText);
-    const bank = detectBank(lowerText, text);
+    const bank = detectBank(lowerText, text, address);
 
     const acctMatch = text.match(ACCOUNT_LAST_DIGITS_REGEX);
     const accountLast4 = acctMatch ? acctMatch[1] : undefined;

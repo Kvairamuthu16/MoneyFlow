@@ -135,4 +135,35 @@ describe('SmsParserService', () => {
   it('returns null for an amount-only balance-check message with no transaction verb', () => {
     expect(SmsParserService.parse('Your account balance as of today is Rs.12,340.00. -HDFC Bank')).toBeNull();
   });
+
+  it('falls back to the sender address to identify the bank when the message body never names it', () => {
+    // A common real-world template: the body says nothing about which bank
+    // sent it -- only the sender ID (e.g. "VM-HDFCBK") does.
+    const text = 'Rs.500.00 debited from A/c XX1234 towards Amazon on 12-Jul-26. Avl Bal Rs.5,000.00';
+    const parsed = SmsParserService.parse(text, 'VM-HDFCBK');
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.bank).toBe('HDFC');
+  });
+
+  it('still prefers a bank name mentioned in the body over the sender address', () => {
+    const text = 'Rs.500.00 debited from A/c XX1234 towards Amazon via SBI on 12-Jul-26.';
+    const parsed = SmsParserService.parse(text, 'VM-HDFCBK');
+
+    expect(parsed?.bank).toBe('SBI');
+  });
+
+  it('matches a multi-word bank keyword against a compact sender address', () => {
+    const text = 'Rs.500.00 debited from A/c XX1234 towards Amazon on 12-Jul-26.';
+    const parsed = SmsParserService.parse(text, 'AD-YESBANK');
+
+    expect(parsed?.bank).toBe('YES BANK');
+  });
+
+  it('still returns Unknown Bank when neither the body nor the address identifies one', () => {
+    const text = 'Rs.500.00 debited from A/c XX1234 towards Amazon on 12-Jul-26.';
+    const parsed = SmsParserService.parse(text, 'AD-XYZABC');
+
+    expect(parsed?.bank).toBe('Unknown Bank');
+  });
 });

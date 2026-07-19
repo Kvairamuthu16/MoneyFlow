@@ -67,7 +67,7 @@ export const TransactionImportService = {
           if (!decision.shouldProcess) {
             skippedFiltered++;
           } else {
-            const parsed = SmsParserService.parse(msg.body);
+            const parsed = SmsParserService.parse(msg.body, msg.address);
             if (!parsed) {
               failed++;
             } else {

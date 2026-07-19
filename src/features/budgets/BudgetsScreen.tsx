@@ -2,13 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { Sparkles, Sliders, Plus, Check, TrendingUp, Trash2, ShieldCheck, ShieldAlert } from 'lucide-react-native';
+import { Sparkles, Sliders, Plus, Check, TrendingUp, Trash2, ShieldCheck, ShieldAlert, Wand2 } from 'lucide-react-native';
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/Card';
 import { ProgressBar, budgetTone } from '../../components/ProgressBar';
 import { Button } from '../../components/Button';
 import { getDaysElapsed, getDaysInMonth } from '../../utils/date';
+import { computeRecommendedBudgets } from '../../utils/budgetRecommendations';
 import { Budget } from '../../types';
 
 function healthScore(budgets: Budget[]): number | null {
@@ -35,7 +36,7 @@ function healthLabel(score: number): { label: string; tone: 'success' | 'warning
 export default function BudgetsScreen() {
   const theme = useTheme();
   const { format } = useCurrency();
-  const { settings, budgets, addBudget, updateBudgetLimit, deleteBudget } = useAppData();
+  const { settings, transactions, budgets, addBudget, updateBudgetLimit, deleteBudget } = useAppData();
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [customLimit, setCustomLimit] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -47,6 +48,11 @@ export default function BudgetsScreen() {
 
   const score = useMemo(() => healthScore(budgets), [budgets]);
   const scoreInfo = score !== null ? healthLabel(score) : null;
+
+  const recommendations = useMemo(
+    () => computeRecommendedBudgets(transactions, budgets, settings.selectedMonth),
+    [transactions, budgets, settings.selectedMonth]
+  );
 
   const forecasts = useMemo(() => {
     return budgets
@@ -91,6 +97,10 @@ export default function BudgetsScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => deleteBudget(category) }
     ]);
+  };
+
+  const handleAcceptRecommendation = (category: string, limit: number) => {
+    addBudget({ category, limit });
   };
 
   return (
@@ -182,6 +192,35 @@ export default function BudgetsScreen() {
             </View>
           </Card>
         </View>
+
+        {/* AI-Recommended Budgets -- for categories with spend history but no budget set yet */}
+        {recommendations.length > 0 && (
+          <Animated.View entering={FadeIn.delay(70)} style={{ paddingHorizontal: 24, marginBottom: 16, gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Wand2 size={16} color={theme.colors.accent} />
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: '700' }}>Recommended Budgets</Text>
+            </View>
+            {recommendations.map((rec) => (
+              <Card key={rec.category} style={{ gap: 10 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: '800' }}>{rec.category}</Text>
+                  <Text style={{ color: theme.colors.success, fontSize: 11, fontWeight: '700' }}>Save {format(rec.potentialSavings)}/mo</Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <View>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '700', textTransform: 'uppercase' }}>Recommended</Text>
+                    <Text style={{ color: theme.colors.textPrimary, fontSize: 14, fontWeight: '800', marginTop: 2 }}>{format(rec.recommendedLimit)}</Text>
+                  </View>
+                  <View>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '700', textTransform: 'uppercase' }}>Current Spend</Text>
+                    <Text style={{ color: theme.colors.danger, fontSize: 14, fontWeight: '800', marginTop: 2 }}>{format(rec.currentSpend)}</Text>
+                  </View>
+                </View>
+                <Button label="Accept Recommendation" variant="secondary" onPress={() => handleAcceptRecommendation(rec.category, rec.recommendedLimit)} />
+              </Card>
+            ))}
+          </Animated.View>
+        )}
 
         {/* Budgets List */}
         <View style={{ paddingHorizontal: 24, gap: 12 }}>

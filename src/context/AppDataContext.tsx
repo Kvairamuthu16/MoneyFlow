@@ -5,6 +5,8 @@ import { SmsSyncWorker, SmsScanRange, ImportResult, TRANSACTIONS_UPDATED_EVENT }
 import { AppSettings, BackupPayload, Budget, SmartInsight, Transaction } from '../types';
 import { computeBudgetsWithSpent } from '../utils/budgets';
 import { CURRENCY_SYMBOLS, CURRENCY_LOCALES, formatCurrency } from '../utils/currency';
+import { computeAiInsights } from '../utils/aiInsights';
+import { computeFinancialHealthScore, FinancialHealthResult } from '../utils/financialHealth';
 
 interface AppDataContextValue {
   settings: AppSettings;
@@ -12,6 +14,7 @@ interface AppDataContextValue {
   budgets: Budget[];
   monthlyTransactions: Transaction[];
   insights: SmartInsight[];
+  financialHealth: FinancialHealthResult;
   isSyncing: boolean;
   refresh: () => void;
   updateSettings: (patch: Partial<AppSettings>) => void;
@@ -60,34 +63,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [transactions, settings.selectedMonth]
   );
 
-  const insights: SmartInsight[] = useMemo(() => {
-    const list: SmartInsight[] = [];
-    const income = monthlyTransactions.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-    const expense = monthlyTransactions.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const insights: SmartInsight[] = useMemo(
+    () => computeAiInsights(transactions, monthlyTransactions, budgets, settings.selectedMonth, settings.currency),
+    [transactions, monthlyTransactions, budgets, settings.selectedMonth, settings.currency]
+  );
 
-    if (expense > income && income > 0) {
-      list.push({
-        id: 'budget-alert',
-        title: 'Budget Alert',
-        description: 'Your monthly expenses have exceeded your total income.',
-        type: 'danger',
-        timestamp: 'Just now'
-      });
-    }
-
-    const overBudget = budgets.filter((b) => b.limit > 0 && b.spent / b.limit >= 1);
-    if (overBudget.length > 0) {
-      list.push({
-        id: 'over-budget',
-        title: `${overBudget.length} ${overBudget.length === 1 ? 'Category' : 'Categories'} Over Budget`,
-        description: overBudget.map((b) => b.category).join(', '),
-        type: 'danger',
-        timestamp: 'Today'
-      });
-    }
-
-    return list;
-  }, [monthlyTransactions, budgets]);
+  const financialHealth: FinancialHealthResult = useMemo(
+    () => computeFinancialHealthScore(transactions, budgetConfigs),
+    [transactions, budgetConfigs]
+  );
 
   const persistSettings = useCallback((next: AppSettings) => {
     setSettingsState(next);
@@ -198,6 +182,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     budgets,
     monthlyTransactions,
     insights,
+    financialHealth,
     isSyncing,
     refresh,
     updateSettings,

@@ -8,13 +8,15 @@ import { CartesianChart, Line, Pie, PolarChart } from 'victory-native';
 // which is valid at runtime but rejected by TypeScript's stricter component
 // typing. Cast locally rather than suppressing type-checking app-wide.
 const PieChartComponent = Pie.Chart as unknown as React.ComponentType<{ children: () => React.ReactNode }>;
-import { ShoppingBag, Landmark, TrendingUp, Lightbulb } from 'lucide-react-native';
+import { ShoppingBag, Landmark, TrendingUp, Lightbulb, Users, ArrowUpRight, ArrowDownLeft } from 'lucide-react-native';
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
 import { Card } from '../../components/Card';
 import { MonthSelector } from '../../components/MonthSelector';
 import { formatYearMonth, getRecentMonths } from '../../utils/date';
 import { computeAccountSummaries } from '../../utils/accountSummary';
+import { computeMerchantSummaries } from '../../utils/merchantInsights';
+import { computeContactSummaries, topPaidTo, topReceivedFrom } from '../../utils/contactInsights';
 
 export default function AnalyticsScreen() {
   const theme = useTheme();
@@ -51,20 +53,13 @@ export default function AnalyticsScreen() {
     [categorySummary, theme.chartPalette]
   );
 
-  const topMerchants = useMemo(() => {
-    const merchants: Record<string, { amount: number; count: number }> = {};
-    monthlyTransactions.forEach((t) => {
-      if (t.type === 'expense') {
-        if (!merchants[t.merchant]) merchants[t.merchant] = { amount: 0, count: 0 };
-        merchants[t.merchant].amount += t.amount;
-        merchants[t.merchant].count += 1;
-      }
-    });
-    return Object.entries(merchants)
-      .map(([name, info]) => ({ name, amount: info.amount, count: info.count }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5);
-  }, [monthlyTransactions]);
+  const topMerchants = useMemo(() => computeMerchantSummaries(monthlyTransactions).slice(0, 5), [monthlyTransactions]);
+
+  // Contact relationships compound over time, unlike month-scoped spend --
+  // uses the full transaction history rather than just the selected month.
+  const contactSummaries = useMemo(() => computeContactSummaries(transactions), [transactions]);
+  const topPaid = useMemo(() => topPaidTo(contactSummaries, 4), [contactSummaries]);
+  const topReceived = useMemo(() => topReceivedFrom(contactSummaries, 4), [contactSummaries]);
 
   // Trend of total monthly expense over the last 6 months, oldest first.
   const trendData = useMemo(() => {
@@ -244,7 +239,7 @@ export default function AnalyticsScreen() {
           <Card padded={false}>
             {topMerchants.map((merchant, idx) => (
               <View
-                key={merchant.name}
+                key={merchant.merchant}
                 style={{
                   flexDirection: 'row',
                   justifyContent: 'space-between',
@@ -259,11 +254,13 @@ export default function AnalyticsScreen() {
                     <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '800' }}>0{idx + 1}</Text>
                   </View>
                   <View>
-                    <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>{merchant.name}</Text>
-                    <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '600', marginTop: 2 }}>{merchant.count} Transactions</Text>
+                    <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>{merchant.merchant}</Text>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 9, fontWeight: '600', marginTop: 2 }}>
+                      {merchant.visitCount} visits • avg {format(merchant.averageSpend)} • highest {format(merchant.highestBill)}
+                    </Text>
                   </View>
                 </View>
-                <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '800' }}>{format(merchant.amount)}</Text>
+                <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '800' }}>{format(merchant.totalSpend)}</Text>
               </View>
             ))}
 
@@ -272,6 +269,48 @@ export default function AnalyticsScreen() {
             )}
           </Card>
         </Animated.View>
+
+        {/* Contact Intelligence -- person-to-person transactions only (merchant purchases excluded), all-time */}
+        {(topPaid.length > 0 || topReceived.length > 0) && (
+          <Animated.View entering={FadeIn.delay(220)} style={{ paddingHorizontal: 24, marginBottom: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Users size={16} color={theme.colors.accent} />
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: '700' }}>People</Text>
+            </View>
+
+            <View style={{ gap: 12 }}>
+              {topPaid.length > 0 && (
+                <Card style={{ gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <ArrowDownLeft size={13} color={theme.colors.danger} />
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>Top Paid To</Text>
+                  </View>
+                  {topPaid.map((contact) => (
+                    <View key={contact.key} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>{contact.label}</Text>
+                      <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: '700' }}>{format(contact.totalSent)}</Text>
+                    </View>
+                  ))}
+                </Card>
+              )}
+
+              {topReceived.length > 0 && (
+                <Card style={{ gap: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <ArrowUpRight size={13} color={theme.colors.success} />
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }}>Top Received From</Text>
+                  </View>
+                  {topReceived.map((contact) => (
+                    <View key={contact.key} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ color: theme.colors.textPrimary, fontSize: 12, fontWeight: '700' }}>{contact.label}</Text>
+                      <Text style={{ color: theme.colors.success, fontSize: 12, fontWeight: '700' }}>{format(contact.totalReceived)}</Text>
+                    </View>
+                  ))}
+                </Card>
+              )}
+            </View>
+          </Animated.View>
+        )}
 
         {/* What to improve this month */}
         <Animated.View entering={FadeIn.delay(240)} style={{ paddingHorizontal: 24 }}>

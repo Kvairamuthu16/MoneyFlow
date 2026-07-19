@@ -15,7 +15,9 @@ import {
   PiggyBank,
   ScanLine,
   PieChart,
-  Landmark
+  Landmark,
+  HeartPulse,
+  Repeat
 } from 'lucide-react-native';
 import { useAppData, useCurrency } from '../../context/AppDataContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -25,7 +27,11 @@ import { MonthSelector } from '../../components/MonthSelector';
 import { useResponsive } from '../../hooks/useResponsive';
 import { getDaysElapsed } from '../../utils/date';
 import { computeAccountSummaries } from '../../utils/accountSummary';
+import { HealthBand } from '../../utils/financialHealth';
+import { detectRecurringPayments } from '../../utils/recurringPayments';
 import { SmsScanRange } from '../../services/sms';
+import { AppTheme } from '../../theme';
+import { AiAssistantModal } from '../assistant/AiAssistantModal';
 
 const SCAN_RANGE_OPTIONS: { value: SmsScanRange; label: string; hint: string }[] = [
   { value: 'day', label: 'Today', hint: 'Messages from the last 24 hours' },
@@ -34,18 +40,28 @@ const SCAN_RANGE_OPTIONS: { value: SmsScanRange; label: string; hint: string }[]
   { value: 'all', label: 'All Time', hint: 'Your entire SMS inbox' }
 ];
 
+function healthBandColor(band: HealthBand, theme: AppTheme): string {
+  if (band === 'Excellent' || band === 'Good') return theme.colors.success;
+  if (band === 'Fair' || band === 'Needs Attention') return theme.colors.warning;
+  return theme.colors.danger;
+}
+
 export default function DashboardScreen({ navigation }: any) {
   const theme = useTheme();
   const { format } = useCurrency();
   const { kpiColumns } = useResponsive();
-  const { settings, transactions, setSelectedMonth, monthlyTransactions, insights, isSyncing, syncSms } = useAppData();
+  const { settings, transactions, setSelectedMonth, monthlyTransactions, insights, financialHealth, isSyncing, syncSms } = useAppData();
   const [refreshing, setRefreshing] = useState(false);
   const [showScanModal, setShowScanModal] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   // Only worth showing once there's more than one distinct bank/account to
   // actually segregate -- for a single-account household this would just
   // duplicate the hero card.
   const accountSummaries = useMemo(() => computeAccountSummaries(transactions, settings.selectedMonth), [transactions, settings.selectedMonth]);
+
+  // Recurring/subscription-like payments detected from transaction history -- see utils/recurringPayments.ts.
+  const recurringPayments = useMemo(() => detectRecurringPayments(transactions), [transactions]);
 
   const { income, expense, remainingSafe, savingsRate, dailyBurn } = useMemo(() => {
     let inc = 0;
@@ -154,6 +170,74 @@ export default function DashboardScreen({ navigation }: any) {
           </LinearGradient>
         </Animated.View>
 
+        {/* Financial Health Score -- a weighted blend of savings rate, budget
+            adherence, spending/income consistency, and fixed-obligation load,
+            computed entirely from local data (see utils/financialHealth.ts). */}
+        <Animated.View entering={FadeIn.delay(220)} style={{ paddingHorizontal: 24, marginBottom: 24 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+            <HeartPulse size={16} color={theme.colors.accent} />
+            <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: '700' }}>Financial Health Score</Text>
+          </View>
+          <Card style={{ gap: 16 }}>
+            {financialHealth.factors.length === 0 ? (
+              <Text style={{ color: theme.colors.textMuted, fontSize: 12, textAlign: 'center', paddingVertical: 12 }}>
+                Add some income and expenses this month to see your score.
+              </Text>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+                  <View
+                    style={{
+                      width: 64,
+                      height: 64,
+                      borderRadius: 32,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: `${healthBandColor(financialHealth.band, theme)}22`,
+                      borderWidth: 2,
+                      borderColor: healthBandColor(financialHealth.band, theme)
+                    }}
+                  >
+                    <Text style={{ color: healthBandColor(financialHealth.band, theme), fontSize: 20, fontWeight: '800' }}>{financialHealth.score}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: healthBandColor(financialHealth.band, theme), fontSize: 14, fontWeight: '800' }}>{financialHealth.band}</Text>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 10, marginTop: 2 }}>Based on savings rate, budget adherence, consistency, and fixed obligations</Text>
+
+                    {/* 6-month trend sparkline */}
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4, marginTop: 10, height: 24 }}>
+                      {financialHealth.trend.map((point) => (
+                        <View
+                          key={point.month}
+                          style={{
+                            flex: 1,
+                            height: Math.max(3, (point.score / 100) * 24),
+                            borderRadius: 2,
+                            backgroundColor: healthBandColor(financialHealth.band, theme),
+                            opacity: 0.35 + (point.score / 100) * 0.65
+                          }}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                </View>
+
+                <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: 14 }}>
+                  {financialHealth.factors.map((factor) => (
+                    <View key={factor.key} style={{ gap: 4 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ color: theme.colors.textPrimary, fontSize: 11, fontWeight: '700' }}>{factor.label}</Text>
+                        <Text style={{ color: theme.colors.textMuted, fontSize: 11, fontWeight: '700' }}>{factor.score}</Text>
+                      </View>
+                      <Text style={{ color: theme.colors.textMuted, fontSize: 10 }}>{factor.detail}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+          </Card>
+        </Animated.View>
+
         {/* KPI Grid */}
         <Animated.View entering={FadeIn.delay(250)} style={{ paddingHorizontal: 24, marginBottom: 24 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
@@ -203,6 +287,13 @@ export default function DashboardScreen({ navigation }: any) {
               <PieChart size={18} color={theme.colors.warning} />
               <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '700' }}>Reports</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowAssistant(true)}
+              style={{ flex: 1, alignItems: 'center', gap: 6, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, paddingVertical: 14 }}
+            >
+              <Sparkles size={18} color={theme.colors.accent} />
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '700' }}>Ask AI</Text>
+            </TouchableOpacity>
           </View>
         </Animated.View>
 
@@ -244,6 +335,29 @@ export default function DashboardScreen({ navigation }: any) {
                     </View>
                   </Card>
                 </TouchableOpacity>
+              ))}
+            </View>
+          </Animated.View>
+        )}
+
+        {/* Subscriptions -- recurring/bill-like payments detected from transaction history */}
+        {recurringPayments.length > 0 && (
+          <Animated.View entering={FadeIn.delay(330)} style={{ paddingHorizontal: 24, marginBottom: 24 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Repeat size={16} color={theme.colors.accent} />
+              <Text style={{ color: theme.colors.textPrimary, fontSize: 15, fontWeight: '700' }}>Subscriptions & Bills</Text>
+            </View>
+            <View style={{ gap: 10 }}>
+              {recurringPayments.slice(0, 4).map((payment) => (
+                <Card key={`${payment.category}-${payment.merchant}`} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={{ color: theme.colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{payment.merchant}</Text>
+                    <Text style={{ color: theme.colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 3 }}>
+                      {payment.category} • Due {payment.nextDueDate} • {format(payment.yearlyCost)}/yr
+                    </Text>
+                  </View>
+                  <Text style={{ color: theme.colors.textPrimary, fontSize: 14, fontWeight: '800' }}>{format(payment.averageAmount)}</Text>
+                </Card>
               ))}
             </View>
           </Animated.View>
@@ -400,6 +514,8 @@ export default function DashboardScreen({ navigation }: any) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <AiAssistantModal visible={showAssistant} onClose={() => setShowAssistant(false)} />
     </SafeAreaView>
   );
 }

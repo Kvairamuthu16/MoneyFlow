@@ -12,14 +12,20 @@ export function formatYearMonth(yearMonth: string): string {
 }
 
 /** Returns the last `count` "YYYY-MM" strings, most recent first, ending at the current month. */
-export function getRecentMonths(count: number): string[] {
-  const now = new Date();
+export function getRecentMonths(count: number, now: Date = new Date()): string[] {
   const months: string[] = [];
   for (let i = 0; i < count; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
   return months;
+}
+
+/** The "YYYY-MM" immediately before the given one (handles year rollover). */
+export function previousYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function getDaysInMonth(yearMonth: string): number {
